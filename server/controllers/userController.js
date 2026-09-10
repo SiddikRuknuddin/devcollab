@@ -74,6 +74,7 @@ const updateProfile = async (req, res) => {
     if (location !== undefined) user.location = location.trim();
     if (experience !== undefined) user.experience = experience.trim();
     if (education !== undefined) user.education = education.trim();
+    if (req.body.profileImage !== undefined) user.profileImage = req.body.profileImage.trim();
 
     await user.save();
 

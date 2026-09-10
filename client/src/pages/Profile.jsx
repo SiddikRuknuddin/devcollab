@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../context/AuthContext";
 
 function Profile() {
   const { token, refreshProfile } = useAuth();
+  const navigate = useNavigate();
 
   const [user, setUser] = useState(null);
   const [projects, setProjects] = useState([]);
@@ -12,10 +13,26 @@ function Profile() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+
+  // Modals state
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAddSkillModal, setShowAddSkillModal] = useState(false);
-  const [newSkillName, setNewSkillName] = useState("");
-  const [newSkillPercent, setNewSkillPercent] = useState(85);
+  const [showAddCertModal, setShowAddCertModal] = useState(false);
+  const [showDeleteProjectModal, setShowDeleteProjectModal] = useState(null); // holds project id
+  const [deletingProjectId, setDeletingProjectId] = useState(null);
+
+  // Add / Edit Skill state
+  const [skillInputName, setSkillInputName] = useState("");
+  const [skillInputPercent, setSkillInputPercent] = useState(85);
+  const [editingSkillIndex, setEditingSkillIndex] = useState(null);
+
+  // Add / Edit Certification state
+  const [certFormData, setCertFormData] = useState({
+    name: "",
+    completed: "",
+    issuer: "",
+  });
+  const [editingCertIndex, setEditingCertIndex] = useState(null);
 
   // Image upload state
   const [imageFile, setImageFile] = useState(null);
@@ -24,11 +41,12 @@ function Profile() {
   const [imageError, setImageError] = useState("");
   const fileInputRef = useRef(null);
 
+  // Main Form Data
   const [formData, setFormData] = useState({
     name: "",
     title: "",
     bio: "",
-    skills: "",
+    skills: [],
     github: "",
     linkedin: "",
     portfolio: "",
@@ -39,7 +57,7 @@ function Profile() {
     certifications: [],
   });
 
-  // Fetch profile and projects
+  // ── Fetch Profile & Projects ───────────────────────────────────────────────
   const fetchProfileData = async () => {
     try {
       setLoading(true);
@@ -52,37 +70,21 @@ function Profile() {
         const userData = profileRes.value.data.user;
         setUser(userData);
 
-        // Parse education years if combined
         const eduParts = (userData.education || "").split(" - ");
 
         setFormData({
           name: userData.name || "",
-          title: userData.title || "Full-stack Web Developer",
-          bio:
-            userData.bio ||
-            "Passionate about building scalable web applications and collaborating on open-source projects.",
-          skills: userData.skills?.join(", ") || "Python (90%), React (85%), Git (85%)",
+          title: userData.title || "",
+          bio: userData.bio || "",
+          skills: userData.skills || [],
           github: userData.github || "",
           linkedin: userData.linkedin || "",
           portfolio: userData.portfolio || "",
           location: userData.location || "",
           experience: userData.experience || "",
-          education: eduParts[0] || "Bachelor of Science in Computer Science",
-          educationYears: eduParts[1] || "2019-2023",
-          certifications: userData.certifications?.length
-            ? userData.certifications
-            : [
-                {
-                  name: "AWS Certified Cloud Practitioner",
-                  completed: "2019-09-23",
-                  issuer: "AWS",
-                },
-                {
-                  name: "Google Data Analytics Certificate",
-                  completed: "2019-07-23",
-                  issuer: "Google",
-                },
-              ],
+          education: eduParts[0] || "",
+          educationYears: eduParts[1] || "",
+          certifications: userData.certifications || [],
         });
       }
 
@@ -100,11 +102,12 @@ function Profile() {
     if (token) fetchProfileData();
   }, [token]);
 
+  // ── Input Change ───────────────────────────────────────────────────────────
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // ── Image Handlers ─────────────────────────────────────────────────────────
+  // ── Image Handlers (Upload & Delete) ───────────────────────────────────────
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -142,7 +145,7 @@ function Profile() {
       setImagePreview("");
       setImageFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      setSuccessMessage("Profile image updated successfully!");
+      setSuccessMessage("Profile photo uploaded successfully!");
       await refreshProfile();
     } catch (err) {
       setImageError(err.response?.data?.message || "Image upload failed.");
@@ -151,14 +154,24 @@ function Profile() {
     }
   };
 
-  const cancelImagePreview = () => {
-    setImageFile(null);
-    setImagePreview("");
-    setImageError("");
-    if (fileInputRef.current) fileInputRef.current.value = "";
+  const handleRemoveImage = async () => {
+    if (!window.confirm("Are you sure you want to remove your profile photo?")) return;
+    try {
+      setUploadingImage(true);
+      const res = await api.put("/api/users/profile", { profileImage: "" });
+      setUser(res.data.user);
+      setImagePreview("");
+      setImageFile(null);
+      setSuccessMessage("Profile photo removed.");
+      await refreshProfile();
+    } catch (err) {
+      setError("Failed to remove profile photo.");
+    } finally {
+      setUploadingImage(false);
+    }
   };
 
-  // ── Save Profile Handler ───────────────────────────────────────────────────
+  // ── Save Full Profile ──────────────────────────────────────────────────────
   const handleUpdate = async (e) => {
     e.preventDefault();
     setSaving(true);
@@ -166,11 +179,6 @@ function Profile() {
     setSuccessMessage("");
 
     try {
-      const skillsArray = formData.skills
-        .split(",")
-        .map((s) => s.trim())
-        .filter((s) => s !== "");
-
       const fullEducation = formData.educationYears
         ? `${formData.education.trim()} - ${formData.educationYears.trim()}`
         : formData.education.trim();
@@ -179,7 +187,7 @@ function Profile() {
         name: formData.name,
         title: formData.title,
         bio: formData.bio,
-        skills: skillsArray,
+        skills: formData.skills,
         github: formData.github,
         linkedin: formData.linkedin,
         portfolio: formData.portfolio,
@@ -201,32 +209,150 @@ function Profile() {
     }
   };
 
-  // ── Add Skill Inline ───────────────────────────────────────────────────────
-  const handleAddSkill = () => {
-    if (!newSkillName.trim()) return;
-    const skillFormatted = `${newSkillName.trim()} (${newSkillPercent}%)`;
-    const currentList = formData.skills
-      ? formData.skills.split(",").map((s) => s.trim())
-      : [];
-    const updatedSkills = [...currentList, skillFormatted].join(", ");
-
-    setFormData({ ...formData, skills: updatedSkills });
-    setNewSkillName("");
-    setShowAddSkillModal(false);
-
-    // Save directly
-    api
-      .put("/api/users/profile", {
-        skills: [...currentList, skillFormatted],
-      })
-      .then((res) => {
-        setUser(res.data.user);
-        setSuccessMessage(`Skill "${skillFormatted}" added!`);
-      })
-      .catch(() => {});
+  // ── SKILLS CRUD ────────────────────────────────────────────────────────────
+  const openAddSkillModal = (index = null) => {
+    if (index !== null) {
+      // Edit existing skill
+      const current = user?.skills?.[index] || "";
+      const match = current.match(/^(.+?)\s*(?:\(([0-9]{1,3})%\))?$/);
+      setSkillInputName(match ? match[1].trim() : current);
+      setSkillInputPercent(match && match[2] ? Number(match[2]) : 85);
+      setEditingSkillIndex(index);
+    } else {
+      setSkillInputName("");
+      setSkillInputPercent(85);
+      setEditingSkillIndex(null);
+    }
+    setShowAddSkillModal(true);
   };
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
+  const handleSaveSkill = async () => {
+    if (!skillInputName.trim()) return;
+
+    const skillStr = `${skillInputName.trim()} (${skillInputPercent}%)`;
+    let updatedSkills = [...(user?.skills || [])];
+
+    if (editingSkillIndex !== null) {
+      updatedSkills[editingSkillIndex] = skillStr;
+    } else {
+      updatedSkills.push(skillStr);
+    }
+
+    try {
+      const res = await api.put("/api/users/profile", { skills: updatedSkills });
+      setUser(res.data.user);
+      setFormData((prev) => ({ ...prev, skills: res.data.user.skills }));
+      setShowAddSkillModal(false);
+      setSuccessMessage(
+        editingSkillIndex !== null ? "Skill updated!" : `Skill "${skillStr}" added!`
+      );
+    } catch (err) {
+      setError("Failed to save skill.");
+    }
+  };
+
+  const handleDeleteSkill = async (indexToDelete) => {
+    const skillToDelete = user?.skills?.[indexToDelete];
+    if (!window.confirm(`Delete skill "${skillToDelete}"?`)) return;
+
+    const updatedSkills = user.skills.filter((_, idx) => idx !== indexToDelete);
+
+    try {
+      const res = await api.put("/api/users/profile", { skills: updatedSkills });
+      setUser(res.data.user);
+      setFormData((prev) => ({ ...prev, skills: res.data.user.skills }));
+      setSuccessMessage("Skill deleted successfully.");
+    } catch (err) {
+      setError("Failed to delete skill.");
+    }
+  };
+
+  // ── CERTIFICATIONS CRUD ────────────────────────────────────────────────────
+  const openAddCertModal = (index = null) => {
+    if (index !== null) {
+      const cert = user?.certifications?.[index] || {};
+      setCertFormData({
+        name: cert.name || "",
+        completed: cert.completed || "",
+        issuer: cert.issuer || "",
+      });
+      setEditingCertIndex(index);
+    } else {
+      setCertFormData({ name: "", completed: "", issuer: "" });
+      setEditingCertIndex(null);
+    }
+    setShowAddCertModal(true);
+  };
+
+  const handleSaveCertification = async () => {
+    if (!certFormData.name.trim()) return;
+
+    let updatedCerts = [...(user?.certifications || [])];
+
+    if (editingCertIndex !== null) {
+      updatedCerts[editingCertIndex] = certFormData;
+    } else {
+      updatedCerts.push(certFormData);
+    }
+
+    try {
+      const res = await api.put("/api/users/profile", { certifications: updatedCerts });
+      setUser(res.data.user);
+      setFormData((prev) => ({ ...prev, certifications: res.data.user.certifications }));
+      setShowAddCertModal(false);
+      setSuccessMessage(
+        editingCertIndex !== null ? "Certification updated!" : "Certification added!"
+      );
+    } catch (err) {
+      setError("Failed to save certification.");
+    }
+  };
+
+  const handleDeleteCertification = async (indexToDelete) => {
+    const cert = user?.certifications?.[indexToDelete];
+    if (!window.confirm(`Delete certification "${cert?.name}"?`)) return;
+
+    const updatedCerts = user.certifications.filter((_, idx) => idx !== indexToDelete);
+
+    try {
+      const res = await api.put("/api/users/profile", { certifications: updatedCerts });
+      setUser(res.data.user);
+      setFormData((prev) => ({ ...prev, certifications: res.data.user.certifications }));
+      setSuccessMessage("Certification deleted.");
+    } catch (err) {
+      setError("Failed to delete certification.");
+    }
+  };
+
+  // ── PROJECT DELETE ─────────────────────────────────────────────────────────
+  const handleDeleteProject = async (projectId) => {
+    try {
+      setDeletingProjectId(projectId);
+      await api.delete(`/api/projects/${projectId}`);
+      setProjects((prev) => prev.filter((p) => p._id !== projectId));
+      setShowDeleteProjectModal(null);
+      setSuccessMessage("Project deleted successfully.");
+    } catch (err) {
+      setError(err.response?.data?.message || "Failed to delete project.");
+    } finally {
+      setDeletingProjectId(null);
+    }
+  };
+
+  // ── Social Link Disconnect ─────────────────────────────────────────────────
+  const handleClearSocialLink = async (field) => {
+    if (!window.confirm(`Disconnect ${field}?`)) return;
+    try {
+      const res = await api.put("/api/users/profile", { [field]: "" });
+      setUser(res.data.user);
+      setFormData((prev) => ({ ...prev, [field]: "" }));
+      setSuccessMessage(`${field} disconnected.`);
+    } catch (err) {
+      setError(`Failed to disconnect ${field}`);
+    }
+  };
+
+  // ── Helper parsing ─────────────────────────────────────────────────────────
   const initials = user?.name
     ? user.name
         .split(" ")
@@ -234,60 +360,46 @@ function Profile() {
         .join("")
         .toUpperCase()
         .slice(0, 2)
-    : "AB";
+    : "DC";
 
   const linkHref = (url) =>
     url && !url.startsWith("http") ? `https://${url}` : url;
 
-  // Format skills for badges
-  const parsedSkills = (user?.skills?.length ? user.skills : formData.skills.split(","))
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((skillStr) => {
-      const match = skillStr.match(/^(.+?)\s*\(([0-9]{1,3})%\)$/);
-      if (match) {
-        return { name: match[1], percent: match[2] };
-      }
-      return { name: skillStr, percent: null };
-    });
+  // Extract GitHub username if available
+  const extractGithubUsername = (urlOrName) => {
+    if (!urlOrName) return "";
+    const clean = urlOrName.trim().replace(/\/$/, "");
+    if (clean.includes("github.com/")) {
+      return clean.split("github.com/").pop().split("/")[0];
+    }
+    return clean.replace(/^@/, "");
+  };
 
-  // Certifications list
-  const currentCerts =
-    user?.certifications?.length > 0
-      ? user.certifications
-      : formData.certifications;
+  const githubUsername = extractGithubUsername(user?.github);
 
-  // Render dummy GitHub contribution squares (7 rows x 26 columns)
-  const contributionGrid = Array.from({ length: 130 }).map((_, idx) => {
-    // Generate realistic activity distribution
-    const seed = (idx * 17 + 5) % 10;
-    let level = 0;
-    if (idx > 50 && seed > 7) level = 4;
-    else if (idx > 40 && seed > 5) level = 3;
-    else if (idx > 30 && seed > 3) level = 2;
-    else if (idx > 20 && seed > 2) level = 1;
-    return level;
+  // Parse skills
+  const parsedSkills = (user?.skills || []).map((skillStr) => {
+    const match = skillStr.match(/^(.+?)\s*(?:\(([0-9]{1,3})%\))?$/);
+    if (match) {
+      return { name: match[1], percent: match[2] || null, raw: skillStr };
+    }
+    return { name: skillStr, percent: null, raw: skillStr };
   });
 
-  const getHeatmapColor = (level) => {
-    switch (level) {
-      case 4:
-        return "#216e39";
-      case 3:
-        return "#30a14e";
-      case 2:
-        return "#40c463";
-      case 1:
-        return "#9be9a8";
-      default:
-        return "#ebedf0";
-    }
-  };
+  const currentCerts = user?.certifications || [];
 
   if (loading) {
     return (
-      <div className="page-container" style={{ minHeight: "80vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div className="loading-container">Loading your profile...</div>
+      <div
+        className="page-container"
+        style={{
+          minHeight: "80vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <div className="loading-container">Loading your real profile...</div>
       </div>
     );
   }
@@ -300,7 +412,7 @@ function Profile() {
         padding: "32px 20px 60px",
       }}
     >
-      <div style={{ maxWidth: "1160px", margin: "0 auto" }}>
+      <div style={{ maxWidth: "1180px", margin: "0 auto" }}>
         {/* Centered Page Title */}
         <div style={{ textAlign: "center", marginBottom: "28px" }}>
           <h1
@@ -316,7 +428,7 @@ function Profile() {
           </h1>
         </div>
 
-        {/* Notifications */}
+        {/* Global Notifications */}
         {successMessage && (
           <div
             className="alert alert-success"
@@ -339,12 +451,26 @@ function Profile() {
         )}
 
         {error && (
-          <div className="alert alert-error" style={{ marginBottom: "20px" }}>
-            ⚠️ {error}
+          <div
+            className="alert alert-error"
+            style={{
+              marginBottom: "20px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <span>⚠️ {error}</span>
+            <button
+              onClick={() => setError("")}
+              style={{ background: "none", border: "none", cursor: "pointer", fontWeight: "bold" }}
+            >
+              ✕
+            </button>
           </div>
         )}
 
-        {/* Main 2-Column Grid */}
+        {/* 2-Column Grid */}
         <div
           style={{
             display: "grid",
@@ -354,7 +480,7 @@ function Profile() {
           }}
         >
           {/* ═══════════════════════════════════════════════════════════════════
-              LEFT COLUMN — Main Profile Card (Matches Screenshot exactly)
+              LEFT COLUMN — Main Profile Card (100% Real, Editable, Deletable)
              ═══════════════════════════════════════════════════════════════════ */}
           <div
             style={{
@@ -377,7 +503,7 @@ function Profile() {
                 marginBottom: "32px",
               }}
             >
-              {/* Avatar + Status + Edit Profile Button */}
+              {/* Avatar + Status + Edit Controls */}
               <div
                 style={{
                   display: "flex",
@@ -415,7 +541,7 @@ function Profile() {
                     )}
                   </div>
 
-                  {/* Online Green Indicator Dot */}
+                  {/* Online Dot */}
                   <span
                     style={{
                       position: "absolute",
@@ -432,7 +558,7 @@ function Profile() {
                   />
                 </div>
 
-                {/* Online text label */}
+                {/* Online Indicator */}
                 <div
                   style={{
                     display: "flex",
@@ -456,7 +582,7 @@ function Profile() {
                   Online
                 </div>
 
-                {/* Edit Profile / Change Photo Pill Button */}
+                {/* Edit Profile Pill Button */}
                 <button
                   type="button"
                   onClick={() => setShowEditModal(true)}
@@ -481,7 +607,7 @@ function Profile() {
                   ✏️ Edit Profile
                 </button>
 
-                {/* Hidden File Input for quick photo upload */}
+                {/* Hidden File Input */}
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -489,22 +615,44 @@ function Profile() {
                   style={{ display: "none" }}
                   onChange={handleImageChange}
                 />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "#6366f1",
-                    fontSize: "0.76rem",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                    marginTop: "8px",
-                    textDecoration: "underline",
-                  }}
-                >
-                  📷 Change Photo
-                </button>
+
+                <div style={{ display: "flex", gap: "8px", marginTop: "8px", alignItems: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#6366f1",
+                      fontSize: "0.76rem",
+                      fontWeight: "600",
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    📷 Upload Photo
+                  </button>
+
+                  {user?.profileImage && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      disabled={uploadingImage}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#ef4444",
+                        fontSize: "0.76rem",
+                        fontWeight: "600",
+                        cursor: "pointer",
+                        textDecoration: "underline",
+                      }}
+                      title="Delete profile picture"
+                    >
+                      🗑️ Remove
+                    </button>
+                  )}
+                </div>
 
                 {imageFile && (
                   <div style={{ marginTop: "8px", textAlign: "center" }}>
@@ -526,7 +674,10 @@ function Profile() {
                     </button>
                     <button
                       type="button"
-                      onClick={cancelImagePreview}
+                      onClick={() => {
+                        setImageFile(null);
+                        setImagePreview("");
+                      }}
                       style={{
                         background: "none",
                         border: "none",
@@ -547,7 +698,7 @@ function Profile() {
                 )}
               </div>
 
-              {/* Name, Role & Bio Fields */}
+              {/* Name, Role & Bio */}
               <div style={{ flex: 1, minWidth: "260px" }}>
                 {/* User Name with Edit Icon */}
                 <div
@@ -585,17 +736,37 @@ function Profile() {
 
                 {/* Professional Title/Role */}
                 <div style={{ marginBottom: "16px" }}>
-                  <label
+                  <div
                     style={{
-                      display: "block",
-                      fontSize: "0.85rem",
-                      fontWeight: "700",
-                      color: "#1e293b",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
                       marginBottom: "6px",
                     }}
                   >
-                    Professional Title/Role
-                  </label>
+                    <label
+                      style={{
+                        fontSize: "0.85rem",
+                        fontWeight: "700",
+                        color: "#1e293b",
+                      }}
+                    >
+                      Professional Title/Role
+                    </label>
+                    <button
+                      onClick={() => setShowEditModal(true)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "#64748b",
+                        fontSize: "0.85rem",
+                      }}
+                      title="Edit Title/Role"
+                    >
+                      ✏️ Edit
+                    </button>
+                  </div>
                   <div
                     style={{
                       background: "#f1f5f9",
@@ -604,10 +775,11 @@ function Profile() {
                       padding: "10px 14px",
                       fontSize: "0.92rem",
                       fontWeight: "500",
-                      color: "#334155",
+                      color: user?.title ? "#334155" : "#94a3b8",
+                      fontStyle: user?.title ? "normal" : "italic",
                     }}
                   >
-                    {user?.title || formData.title || "Full-stack Web Developer"}
+                    {user?.title || "No professional title set. Click Edit to add one."}
                   </div>
                 </div>
 
@@ -637,11 +809,11 @@ function Profile() {
                         border: "none",
                         cursor: "pointer",
                         color: "#64748b",
-                        fontSize: "0.9rem",
+                        fontSize: "0.85rem",
                       }}
                       title="Edit Bio"
                     >
-                      ✏️
+                      ✏️ Edit
                     </button>
                   </div>
                   <div
@@ -652,10 +824,11 @@ function Profile() {
                       padding: "12px 14px",
                       fontSize: "0.9rem",
                       lineHeight: "1.6",
-                      color: "#475569",
+                      color: user?.bio ? "#475569" : "#94a3b8",
+                      fontStyle: user?.bio ? "normal" : "italic",
                     }}
                   >
-                    {user?.bio || formData.bio}
+                    {user?.bio || "No personal bio added yet. Click Edit to tell others about yourself."}
                   </div>
                 </div>
               </div>
@@ -664,7 +837,7 @@ function Profile() {
             {/* Divider */}
             <hr style={{ border: "none", borderTop: "1px solid #f1f5f9", margin: "24px 0" }} />
 
-            {/* ── Skills & Expertise Section ──────────────────────────────── */}
+            {/* ── Skills & Expertise Section (Real CRUD) ──────────────────── */}
             <div style={{ marginBottom: "32px" }}>
               <div
                 style={{
@@ -686,14 +859,13 @@ function Profile() {
                       color: "#1e293b",
                     }}
                   >
-                    Skills &amp; Expertise
+                    Skills &amp; Expertise ({parsedSkills.length})
                   </h3>
                 </div>
 
-                {/* Add Skill Button (Warm Peach/Coral Gradient Pill) */}
                 <button
                   type="button"
-                  onClick={() => setShowAddSkillModal(true)}
+                  onClick={() => openAddSkillModal()}
                   style={{
                     background: "linear-gradient(135deg, #fed7aa 0%, #fdba74 100%)",
                     color: "#9a3412",
@@ -713,146 +885,251 @@ function Profile() {
                 </button>
               </div>
 
-              {/* Skills Badges with percentage */}
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
-                {parsedSkills.map((skill, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: "inline-flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      background: "#f1f5f9",
-                      borderRadius: "12px",
-                      padding: "8px 16px",
-                      border: "1px solid #e2e8f0",
-                    }}
-                  >
-                    <span
+              {parsedSkills.length > 0 ? (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
+                  {parsedSkills.map((skill, i) => (
+                    <div
+                      key={i}
                       style={{
-                        fontWeight: "700",
-                        fontSize: "0.95rem",
-                        color: "#1e293b",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "10px",
+                        background: "#f1f5f9",
+                        borderRadius: "12px",
+                        padding: "8px 14px",
+                        border: "1px solid #e2e8f0",
+                        position: "relative",
                       }}
                     >
-                      {skill.name}
-                    </span>
-                    {skill.percent && (
-                      <span
-                        style={{
-                          fontSize: "0.75rem",
-                          fontWeight: "600",
-                          color: "#64748b",
-                          marginTop: "2px",
-                        }}
-                      >
-                        {skill.percent}%
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
+                      <div style={{ display: "flex", flexDirection: "column" }}>
+                        <span
+                          style={{
+                            fontWeight: "700",
+                            fontSize: "0.92rem",
+                            color: "#1e293b",
+                          }}
+                        >
+                          {skill.name}
+                        </span>
+                        {skill.percent && (
+                          <span
+                            style={{
+                              fontSize: "0.74rem",
+                              fontWeight: "600",
+                              color: "#64748b",
+                            }}
+                          >
+                            {skill.percent}%
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Edit & Delete Actions */}
+                      <div style={{ display: "flex", gap: "4px" }}>
+                        <button
+                          type="button"
+                          onClick={() => openAddSkillModal(i)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            fontSize: "0.75rem",
+                            color: "#64748b",
+                            padding: "2px",
+                          }}
+                          title="Edit skill"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSkill(i)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            fontSize: "0.75rem",
+                            color: "#ef4444",
+                            padding: "2px",
+                          }}
+                          title="Delete skill"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div
+                  style={{
+                    background: "#f8fafc",
+                    border: "1px dashed #cbd5e1",
+                    borderRadius: "12px",
+                    padding: "20px",
+                    textAlign: "center",
+                    color: "#64748b",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  No skills added yet. Click <strong>+ Add Skill</strong> to showcase your tech stack!
+                </div>
+              )}
             </div>
 
-            {/* ── Certifications Section ─────────────────────────────────── */}
+            {/* ── Certifications Section (Real CRUD) ──────────────────────── */}
             <div style={{ marginBottom: "32px" }}>
               <div
                 style={{
-                  background: "#fed7aa",
-                  borderRadius: "12px 12px 0 0",
-                  padding: "10px 18px",
-                  display: "grid",
-                  gridTemplateColumns: "2fr 1fr 1fr",
-                  fontWeight: "700",
-                  fontSize: "0.85rem",
-                  color: "#7c2d12",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "12px",
                 }}
               >
-                <span>Certifications</span>
-                <span>Completed</span>
-                <span style={{ textAlign: "right" }}>Issuing</span>
-              </div>
-
-              <div
-                style={{
-                  border: "1px solid #fed7aa",
-                  borderTop: "none",
-                  borderRadius: "0 0 12px 12px",
-                  overflow: "hidden",
-                }}
-              >
-                {currentCerts.map((cert, idx) => (
-                  <div
-                    key={idx}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "1.2rem" }}>📜</span>
+                  <h3
                     style={{
-                      display: "grid",
-                      gridTemplateColumns: "2fr 1fr 1fr",
-                      alignItems: "center",
-                      padding: "12px 18px",
-                      borderBottom:
-                        idx === currentCerts.length - 1 ? "none" : "1px solid #f1f5f9",
-                      background: idx % 2 === 0 ? "#ffffff" : "#fffbf5",
-                      fontSize: "0.9rem",
+                      margin: 0,
+                      fontSize: "1.15rem",
+                      fontWeight: "700",
+                      color: "#1e293b",
                     }}
                   >
-                    <span style={{ fontWeight: "600", color: "#1e293b" }}>{cert.name}</span>
-                    <span style={{ color: "#64748b", fontSize: "0.85rem" }}>
-                      {cert.completed || "Verified"}
-                    </span>
-                    <span style={{ textAlign: "right" }}>
-                      {cert.issuer === "AWS" ? (
-                        <span
-                          style={{
-                            display: "inline-block",
-                            background: "#232f3e",
-                            color: "#ff9900",
-                            fontWeight: "800",
-                            fontSize: "0.75rem",
-                            padding: "3px 8px",
-                            borderRadius: "6px",
-                          }}
-                        >
-                          AWS
-                        </span>
-                      ) : cert.issuer === "Google" ? (
-                        <span
-                          style={{
-                            display: "inline-block",
-                            background: "#ffffff",
-                            color: "#4285f4",
-                            border: "1px solid #e2e8f0",
-                            fontWeight: "800",
-                            fontSize: "0.75rem",
-                            padding: "2px 8px",
-                            borderRadius: "6px",
-                          }}
-                        >
-                          <span style={{ color: "#4285f4" }}>G</span>
-                          <span style={{ color: "#ea4335" }}>o</span>
-                          <span style={{ color: "#fbbc05" }}>o</span>
-                          <span style={{ color: "#34a853" }}>g</span>
-                        </span>
-                      ) : (
-                        <span
-                          style={{
-                            background: "#e0e7ff",
-                            color: "#3730a3",
-                            fontSize: "0.75rem",
-                            padding: "3px 8px",
-                            borderRadius: "6px",
-                            fontWeight: "700",
-                          }}
-                        >
-                          {cert.issuer || "Official"}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                ))}
+                    Certifications ({currentCerts.length})
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openAddCertModal()}
+                  style={{
+                    background: "#f1f5f9",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: "9999px",
+                    padding: "6px 16px",
+                    fontSize: "0.82rem",
+                    fontWeight: "600",
+                    color: "#334155",
+                    cursor: "pointer",
+                  }}
+                >
+                  + Add Certification
+                </button>
               </div>
+
+              {currentCerts.length > 0 ? (
+                <>
+                  <div
+                    style={{
+                      background: "#fed7aa",
+                      borderRadius: "12px 12px 0 0",
+                      padding: "10px 18px",
+                      display: "grid",
+                      gridTemplateColumns: "2.5fr 1.5fr 1.5fr 70px",
+                      fontWeight: "700",
+                      fontSize: "0.85rem",
+                      color: "#7c2d12",
+                    }}
+                  >
+                    <span>Certification Name</span>
+                    <span>Completed</span>
+                    <span>Issuing Body</span>
+                    <span style={{ textAlign: "right" }}>Actions</span>
+                  </div>
+
+                  <div
+                    style={{
+                      border: "1px solid #fed7aa",
+                      borderTop: "none",
+                      borderRadius: "0 0 12px 12px",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {currentCerts.map((cert, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "2.5fr 1.5fr 1.5fr 70px",
+                          alignItems: "center",
+                          padding: "12px 18px",
+                          borderBottom:
+                            idx === currentCerts.length - 1 ? "none" : "1px solid #f1f5f9",
+                          background: idx % 2 === 0 ? "#ffffff" : "#fffbf5",
+                          fontSize: "0.9rem",
+                        }}
+                      >
+                        <span style={{ fontWeight: "600", color: "#1e293b" }}>{cert.name}</span>
+                        <span style={{ color: "#64748b", fontSize: "0.85rem" }}>
+                          {cert.completed || "Verified"}
+                        </span>
+                        <span>
+                          <span
+                            style={{
+                              background: "#e0e7ff",
+                              color: "#3730a3",
+                              fontSize: "0.75rem",
+                              padding: "3px 8px",
+                              borderRadius: "6px",
+                              fontWeight: "700",
+                            }}
+                          >
+                            {cert.issuer || "Official"}
+                          </span>
+                        </span>
+                        <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px" }}>
+                          <button
+                            type="button"
+                            onClick={() => openAddCertModal(idx)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              fontSize: "0.85rem",
+                              color: "#64748b",
+                            }}
+                            title="Edit certification"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCertification(idx)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              fontSize: "0.85rem",
+                              color: "#ef4444",
+                            }}
+                            title="Delete certification"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div
+                  style={{
+                    background: "#f8fafc",
+                    border: "1px dashed #cbd5e1",
+                    borderRadius: "12px",
+                    padding: "20px",
+                    textAlign: "center",
+                    color: "#64748b",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  No certifications added yet. Click <strong>+ Add Certification</strong> to list your verified credentials.
+                </div>
+              )}
             </div>
 
-            {/* ── Education Section ──────────────────────────────────────── */}
+            {/* ── Education Section (Real CRUD) ───────────────────────────── */}
             <div
               style={{
                 background: "#f8fafc",
@@ -861,55 +1138,80 @@ function Profile() {
                 border: "1px solid #e2e8f0",
                 display: "flex",
                 alignItems: "center",
+                justifyContent: "space-between",
                 gap: "20px",
                 marginBottom: "32px",
               }}
             >
-              <div
-                style={{
-                  width: "56px",
-                  height: "56px",
-                  borderRadius: "14px",
-                  background: "#e0e7ff",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "1.8rem",
-                  flexShrink: 0,
-                }}
-              >
-                🎓
-              </div>
-              <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "20px", flex: 1 }}>
                 <div
                   style={{
-                    fontSize: "0.8rem",
-                    fontWeight: "700",
-                    color: "#6366f1",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
-                    marginBottom: "4px",
+                    width: "56px",
+                    height: "56px",
+                    borderRadius: "14px",
+                    background: "#e0e7ff",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "1.8rem",
+                    flexShrink: 0,
                   }}
                 >
-                  Education
+                  🎓
                 </div>
-                <h4
+                <div>
+                  <div
+                    style={{
+                      fontSize: "0.8rem",
+                      fontWeight: "700",
+                      color: "#6366f1",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Education
+                  </div>
+                  <h4
+                    style={{
+                      margin: 0,
+                      fontSize: "1.05rem",
+                      fontWeight: "700",
+                      color: user?.education ? "#0f172a" : "#94a3b8",
+                      fontStyle: user?.education ? "normal" : "italic",
+                    }}
+                  >
+                    {user?.education?.split(" - ")[0] || "No education added yet."}
+                  </h4>
+                  {user?.education?.split(" - ")[1] && (
+                    <p style={{ margin: "3px 0 0", color: "#64748b", fontSize: "0.85rem" }}>
+                      {user.education.split(" - ")[1]}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(true)}
                   style={{
-                    margin: 0,
-                    fontSize: "1.05rem",
-                    fontWeight: "700",
-                    color: "#0f172a",
+                    background: "none",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: "8px",
+                    padding: "6px 14px",
+                    fontSize: "0.8rem",
+                    fontWeight: "600",
+                    color: "#334155",
+                    cursor: "pointer",
                   }}
                 >
-                  {user?.education?.split(" - ")[0] || formData.education}
-                </h4>
-                <p style={{ margin: "3px 0 0", color: "#64748b", fontSize: "0.85rem" }}>
-                  {user?.education?.split(" - ")[1] || formData.educationYears || "2019 - 2023"}
-                </p>
+                  ✏️ Edit Education
+                </button>
               </div>
             </div>
 
-            {/* ── Links & Social Row ─────────────────────────────────────── */}
+            {/* ── Links & Social Row (Real URLs & Disconnect) ─────────────── */}
             <div>
               <div
                 style={{
@@ -935,21 +1237,12 @@ function Profile() {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
                   gap: "16px",
                 }}
               >
                 {/* GitHub */}
-                <a
-                  href={user?.github ? linkHref(user.github) : "#"}
-                  target={user?.github ? "_blank" : "_self"}
-                  rel="noopener noreferrer"
-                  onClick={(e) => {
-                    if (!user?.github) {
-                      e.preventDefault();
-                      setShowEditModal(true);
-                    }
-                  }}
+                <div
                   style={{
                     display: "flex",
                     flexDirection: "column",
@@ -958,18 +1251,27 @@ function Profile() {
                     background: "#f8fafc",
                     border: "1.5px solid #e2e8f0",
                     borderRadius: "16px",
-                    textDecoration: "none",
-                    transition: "all 0.2s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = "translateY(-3px)";
-                    e.currentTarget.style.borderColor = "#0f172a";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = "translateY(0)";
-                    e.currentTarget.style.borderColor = "#e2e8f0";
+                    position: "relative",
                   }}
                 >
+                  {user?.github && (
+                    <button
+                      onClick={() => handleClearSocialLink("github")}
+                      style={{
+                        position: "absolute",
+                        top: "8px",
+                        right: "8px",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "#ef4444",
+                        fontSize: "0.75rem",
+                      }}
+                      title="Disconnect GitHub"
+                    >
+                      ✕
+                    </button>
+                  )}
                   <div
                     style={{
                       width: "48px",
@@ -989,29 +1291,43 @@ function Profile() {
                   <span style={{ fontWeight: "700", color: "#0f172a", fontSize: "0.85rem" }}>
                     GitHub
                   </span>
-                  <span
-                    style={{
-                      fontSize: "0.72rem",
-                      fontWeight: "600",
-                      color: user?.github ? "#16a34a" : "#94a3b8",
-                      marginTop: "4px",
-                    }}
-                  >
-                    {user?.github ? "Connected ✅" : "Connect Now"}
-                  </span>
-                </a>
+                  {user?.github ? (
+                    <a
+                      href={linkHref(user.github)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        fontSize: "0.74rem",
+                        fontWeight: "600",
+                        color: "#16a34a",
+                        marginTop: "4px",
+                        textDecoration: "none",
+                      }}
+                    >
+                      Connected 🔗
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowEditModal(true)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        fontSize: "0.74rem",
+                        fontWeight: "600",
+                        color: "#6366f1",
+                        marginTop: "4px",
+                        cursor: "pointer",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      Connect Now
+                    </button>
+                  )}
+                </div>
 
                 {/* LinkedIn */}
-                <a
-                  href={user?.linkedin ? linkHref(user.linkedin) : "#"}
-                  target={user?.linkedin ? "_blank" : "_self"}
-                  rel="noopener noreferrer"
-                  onClick={(e) => {
-                    if (!user?.linkedin) {
-                      e.preventDefault();
-                      setShowEditModal(true);
-                    }
-                  }}
+                <div
                   style={{
                     display: "flex",
                     flexDirection: "column",
@@ -1020,18 +1336,27 @@ function Profile() {
                     background: "#f8fafc",
                     border: "1.5px solid #e2e8f0",
                     borderRadius: "16px",
-                    textDecoration: "none",
-                    transition: "all 0.2s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = "translateY(-3px)";
-                    e.currentTarget.style.borderColor = "#0a66c2";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = "translateY(0)";
-                    e.currentTarget.style.borderColor = "#e2e8f0";
+                    position: "relative",
                   }}
                 >
+                  {user?.linkedin && (
+                    <button
+                      onClick={() => handleClearSocialLink("linkedin")}
+                      style={{
+                        position: "absolute",
+                        top: "8px",
+                        right: "8px",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "#ef4444",
+                        fontSize: "0.75rem",
+                      }}
+                      title="Disconnect LinkedIn"
+                    >
+                      ✕
+                    </button>
+                  )}
                   <div
                     style={{
                       width: "48px",
@@ -1052,29 +1377,43 @@ function Profile() {
                   <span style={{ fontWeight: "700", color: "#0f172a", fontSize: "0.85rem" }}>
                     LinkedIn
                   </span>
-                  <span
-                    style={{
-                      fontSize: "0.72rem",
-                      fontWeight: "600",
-                      color: user?.linkedin ? "#16a34a" : "#94a3b8",
-                      marginTop: "4px",
-                    }}
-                  >
-                    {user?.linkedin ? "Connected ✅" : "Connect Now"}
-                  </span>
-                </a>
+                  {user?.linkedin ? (
+                    <a
+                      href={linkHref(user.linkedin)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        fontSize: "0.74rem",
+                        fontWeight: "600",
+                        color: "#16a34a",
+                        marginTop: "4px",
+                        textDecoration: "none",
+                      }}
+                    >
+                      Connected 🔗
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowEditModal(true)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        fontSize: "0.74rem",
+                        fontWeight: "600",
+                        color: "#6366f1",
+                        marginTop: "4px",
+                        cursor: "pointer",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      Connect Now
+                    </button>
+                  )}
+                </div>
 
                 {/* Portfolio */}
-                <a
-                  href={user?.portfolio ? linkHref(user.portfolio) : "#"}
-                  target={user?.portfolio ? "_blank" : "_self"}
-                  rel="noopener noreferrer"
-                  onClick={(e) => {
-                    if (!user?.portfolio) {
-                      e.preventDefault();
-                      setShowEditModal(true);
-                    }
-                  }}
+                <div
                   style={{
                     display: "flex",
                     flexDirection: "column",
@@ -1083,18 +1422,27 @@ function Profile() {
                     background: "#f8fafc",
                     border: "1.5px solid #e2e8f0",
                     borderRadius: "16px",
-                    textDecoration: "none",
-                    transition: "all 0.2s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = "translateY(-3px)";
-                    e.currentTarget.style.borderColor = "#10b981";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = "translateY(0)";
-                    e.currentTarget.style.borderColor = "#e2e8f0";
+                    position: "relative",
                   }}
                 >
+                  {user?.portfolio && (
+                    <button
+                      onClick={() => handleClearSocialLink("portfolio")}
+                      style={{
+                        position: "absolute",
+                        top: "8px",
+                        right: "8px",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "#ef4444",
+                        fontSize: "0.75rem",
+                      }}
+                      title="Disconnect Portfolio"
+                    >
+                      ✕
+                    </button>
+                  )}
                   <div
                     style={{
                       width: "48px",
@@ -1114,23 +1462,46 @@ function Profile() {
                   <span style={{ fontWeight: "700", color: "#0f172a", fontSize: "0.85rem" }}>
                     Portfolio
                   </span>
-                  <span
-                    style={{
-                      fontSize: "0.72rem",
-                      fontWeight: "600",
-                      color: user?.portfolio ? "#16a34a" : "#94a3b8",
-                      marginTop: "4px",
-                    }}
-                  >
-                    {user?.portfolio ? "Connected ✅" : "Connect Now"}
-                  </span>
-                </a>
+                  {user?.portfolio ? (
+                    <a
+                      href={linkHref(user.portfolio)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        fontSize: "0.74rem",
+                        fontWeight: "600",
+                        color: "#16a34a",
+                        marginTop: "4px",
+                        textDecoration: "none",
+                      }}
+                    >
+                      Connected 🔗
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowEditModal(true)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        fontSize: "0.74rem",
+                        fontWeight: "600",
+                        color: "#6366f1",
+                        marginTop: "4px",
+                        cursor: "pointer",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      Connect Now
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
           {/* ═══════════════════════════════════════════════════════════════════
-              RIGHT COLUMN — Sidebar Cards (Matches Screenshot layout)
+              RIGHT COLUMN — Sidebar Cards (100% Real, Editable, Deletable)
              ═══════════════════════════════════════════════════════════════════ */}
           <div
             style={{
@@ -1139,7 +1510,7 @@ function Profile() {
               gap: "24px",
             }}
           >
-            {/* Card 1: Links & Social with GitHub Contribution Heatmap */}
+            {/* Card 1: Links & Real GitHub Contribution Activity */}
             <div
               style={{
                 background: "#ffffff",
@@ -1153,222 +1524,132 @@ function Profile() {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: "8px",
+                  justifyContent: "space-between",
                   marginBottom: "16px",
                 }}
               >
-                <span style={{ fontSize: "1.1rem" }}>🌐</span>
-                <h3
-                  style={{
-                    margin: 0,
-                    fontSize: "1.05rem",
-                    fontWeight: "700",
-                    color: "#1e293b",
-                  }}
-                >
-                  Links &amp; Social
-                </h3>
-              </div>
-
-              {/* Connected Icons row */}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr 1fr",
-                  gap: "10px",
-                  marginBottom: "20px",
-                }}
-              >
-                <div style={{ textAlign: "center" }}>
-                  <div
-                    style={{
-                      width: "44px",
-                      height: "44px",
-                      borderRadius: "12px",
-                      background: "#0f172a",
-                      color: "white",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      margin: "0 auto 6px",
-                      fontSize: "20px",
-                    }}
-                  >
-                    🐙
-                  </div>
-                  <div style={{ fontSize: "0.75rem", fontWeight: "700" }}>GitHub</div>
-                  <div
-                    style={{
-                      fontSize: "0.68rem",
-                      color: user?.github ? "#16a34a" : "#94a3b8",
-                    }}
-                  >
-                    {user?.github ? "Connected ●" : "Connect"}
-                  </div>
-                </div>
-
-                <div style={{ textAlign: "center" }}>
-                  <div
-                    style={{
-                      width: "44px",
-                      height: "44px",
-                      borderRadius: "12px",
-                      background: "#0a66c2",
-                      color: "white",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      margin: "0 auto 6px",
-                      fontSize: "20px",
-                      fontWeight: "bold",
-                    }}
-                  >
-                    in
-                  </div>
-                  <div style={{ fontSize: "0.75rem", fontWeight: "700" }}>LinkedIn</div>
-                  <div
-                    style={{
-                      fontSize: "0.68rem",
-                      color: user?.linkedin ? "#16a34a" : "#94a3b8",
-                    }}
-                  >
-                    {user?.linkedin ? "Connected ●" : "Connect"}
-                  </div>
-                </div>
-
-                <div style={{ textAlign: "center" }}>
-                  <div
-                    style={{
-                      width: "44px",
-                      height: "44px",
-                      borderRadius: "12px",
-                      background: "#10b981",
-                      color: "white",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      margin: "0 auto 6px",
-                      fontSize: "20px",
-                    }}
-                  >
-                    📄
-                  </div>
-                  <div style={{ fontSize: "0.75rem", fontWeight: "700" }}>Portfolio</div>
-                  <div
-                    style={{
-                      fontSize: "0.68rem",
-                      color: user?.portfolio ? "#16a34a" : "#94a3b8",
-                    }}
-                  >
-                    {user?.portfolio ? "Connected ●" : "Connect"}
-                  </div>
-                </div>
-              </div>
-
-              {/* GitHub Contribution Graph Heading */}
-              <div
-                style={{
-                  borderTop: "1px solid #f1f5f9",
-                  paddingTop: "16px",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: "8px",
-                  }}
-                >
-                  <h4
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "1.1rem" }}>🐙</span>
+                  <h3
                     style={{
                       margin: 0,
-                      fontSize: "0.85rem",
+                      fontSize: "1.05rem",
                       fontWeight: "700",
-                      color: "#334155",
+                      color: "#1e293b",
                     }}
                   >
-                    GitHub Contribution Graph
-                  </h4>
+                    GitHub Contributions
+                  </h3>
                 </div>
+                {githubUsername && (
+                  <span style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: "600" }}>
+                    @{githubUsername}
+                  </span>
+                )}
+              </div>
 
-                {/* Heatmap Months Header */}
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontSize: "0.68rem",
-                    color: "#94a3b8",
-                    marginBottom: "4px",
-                    padding: "0 2px",
-                  }}
-                >
-                  <span>Mar</span>
-                  <span>Jun</span>
-                  <span>Jul</span>
-                  <span>Aug</span>
-                  <span>Oct</span>
-                  <span>Nov</span>
-                  <span>Dec</span>
-                </div>
-
-                {/* Heatmap Grid */}
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(20, 1fr)",
-                    gap: "3px",
-                    padding: "8px",
-                    background: "#f8fafc",
-                    borderRadius: "8px",
-                    border: "1px solid #e2e8f0",
-                  }}
-                >
-                  {contributionGrid.slice(0, 100).map((level, i) => (
-                    <div
-                      key={i}
+              {githubUsername ? (
+                <div>
+                  <div
+                    style={{
+                      background: "#ffffff",
+                      borderRadius: "12px",
+                      padding: "12px",
+                      border: "1px solid #e2e8f0",
+                      overflowX: "auto",
+                      textAlign: "center",
+                    }}
+                  >
+                    {/* Real GitHub Contribution Chart Image via ghchart */}
+                    <img
+                      src={`https://ghchart.rshah.org/216e39/${githubUsername}`}
+                      alt={`${githubUsername}'s real github contributions`}
                       style={{
                         width: "100%",
-                        paddingBottom: "100%",
-                        backgroundColor: getHeatmapColor(level),
-                        borderRadius: "2px",
+                        minWidth: "260px",
+                        height: "auto",
+                        display: "block",
+                        margin: "0 auto",
                       }}
-                      title={`Activity level: ${level}`}
+                      onError={(e) => {
+                        e.target.style.display = "none";
+                        e.target.nextSibling.style.display = "block";
+                      }}
                     />
-                  ))}
+                    <div style={{ display: "none", padding: "16px", color: "#64748b", fontSize: "0.85rem" }}>
+                      GitHub activity loaded for <strong>@{githubUsername}</strong>.
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginTop: "10px",
+                    }}
+                  >
+                    <a
+                      href={`https://github.com/${githubUsername}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        fontSize: "0.78rem",
+                        color: "#6366f1",
+                        fontWeight: "600",
+                        textDecoration: "none",
+                      }}
+                    >
+                      View GitHub Profile ↗
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleClearSocialLink("github")}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#ef4444",
+                        fontSize: "0.75rem",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Disconnect
+                    </button>
+                  </div>
                 </div>
-
-                {/* Less -> More Legend */}
+              ) : (
                 <div
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "flex-end",
-                    gap: "4px",
-                    marginTop: "6px",
-                    fontSize: "0.65rem",
-                    color: "#94a3b8",
+                    background: "#f8fafc",
+                    border: "1px dashed #cbd5e1",
+                    borderRadius: "12px",
+                    padding: "20px",
+                    textAlign: "center",
                   }}
                 >
-                  <span>Less</span>
-                  {[0, 1, 2, 3, 4].map((lvl) => (
-                    <span
-                      key={lvl}
-                      style={{
-                        width: "8px",
-                        height: "8px",
-                        borderRadius: "2px",
-                        backgroundColor: getHeatmapColor(lvl),
-                        display: "inline-block",
-                      }}
-                    />
-                  ))}
-                  <span>More</span>
+                  <p style={{ margin: "0 0 10px", fontSize: "0.85rem", color: "#64748b" }}>
+                    No GitHub connected yet. Link your GitHub username or URL to view your live contributions graph.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowEditModal(true)}
+                    style={{
+                      background: "#0f172a",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "9999px",
+                      padding: "6px 14px",
+                      fontSize: "0.78rem",
+                      fontWeight: "600",
+                      cursor: "pointer",
+                    }}
+                  >
+                    + Connect GitHub
+                  </button>
                 </div>
-              </div>
+              )}
             </div>
 
-            {/* Card 2: Top Projects (Matches Screenshot) */}
+            {/* Card 2: Top Projects (Real Projects with View, Edit & Delete) */}
             <div
               style={{
                 background: "#ffffff",
@@ -1382,27 +1663,36 @@ function Profile() {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: "8px",
+                  justifyContent: "space-between",
                   marginBottom: "16px",
                 }}
               >
-                <span style={{ fontSize: "1.1rem" }}>💼</span>
-                <h3
-                  style={{
-                    margin: 0,
-                    fontSize: "1.05rem",
-                    fontWeight: "700",
-                    color: "#1e293b",
-                  }}
-                >
-                  Top Projects
-                </h3>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "1.1rem" }}>💼</span>
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: "1.05rem",
+                      fontWeight: "700",
+                      color: "#1e293b",
+                    }}
+                  >
+                    My Projects ({projects.length})
+                  </h3>
+                </div>
               </div>
 
-              {/* Projects List / Mini Cards */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "18px" }}>
+              {/* Real Projects List */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                  marginBottom: "18px",
+                }}
+              >
                 {projects.length > 0 ? (
-                  projects.slice(0, 2).map((proj) => (
+                  projects.map((proj) => (
                     <div
                       key={proj._id}
                       style={{
@@ -1410,21 +1700,54 @@ function Profile() {
                         border: "1px solid #e2e8f0",
                         borderRadius: "14px",
                         padding: "14px",
+                        position: "relative",
                       }}
                     >
-                      <Link
-                        to={`/projects/${proj._id}`}
+                      <div
                         style={{
-                          textDecoration: "none",
-                          fontSize: "0.95rem",
-                          fontWeight: "700",
-                          color: "#1e293b",
-                          display: "block",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          gap: "8px",
                           marginBottom: "4px",
                         }}
                       >
-                        {proj.title}
-                      </Link>
+                        <Link
+                          to={`/projects/${proj._id}`}
+                          style={{
+                            textDecoration: "none",
+                            fontSize: "0.95rem",
+                            fontWeight: "700",
+                            color: "#1e293b",
+                          }}
+                        >
+                          {proj.title}
+                        </Link>
+                        {/* Status Badge */}
+                        <span
+                          style={{
+                            fontSize: "0.7rem",
+                            fontWeight: "700",
+                            padding: "2px 8px",
+                            borderRadius: "6px",
+                            background:
+                              proj.status === "Completed"
+                                ? "#dcfce7"
+                                : proj.status === "In Progress"
+                                ? "#dbeafe"
+                                : "#fef3c7",
+                            color:
+                              proj.status === "Completed"
+                                ? "#15803d"
+                                : proj.status === "In Progress"
+                                ? "#1d4ed8"
+                                : "#b45309",
+                          }}
+                        >
+                          {proj.status || "In Progress"}
+                        </span>
+                      </div>
+
                       <p
                         style={{
                           fontSize: "0.8rem",
@@ -1439,86 +1762,92 @@ function Profile() {
                       >
                         {proj.description}
                       </p>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                        {(proj.tags || []).slice(0, 3).map((tag, idx) => (
-                          <span
-                            key={idx}
+
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: "6px",
+                        }}
+                      >
+                        {/* Technologies Tags */}
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                          {(proj.technologies || []).slice(0, 3).map((tag, idx) => (
+                            <span
+                              key={idx}
+                              style={{
+                                background: "#e0e7ff",
+                                color: "#4338ca",
+                                fontSize: "0.68rem",
+                                fontWeight: "600",
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                              }}
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+
+                        {/* Real Edit & Delete Action Buttons */}
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/projects/${proj._id}/edit`)}
                             style={{
-                              background: "#e0e7ff",
-                              color: "#4338ca",
-                              fontSize: "0.7rem",
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              fontSize: "0.78rem",
+                              color: "#6366f1",
                               fontWeight: "600",
-                              padding: "2px 8px",
-                              borderRadius: "6px",
+                              padding: 0,
                             }}
+                            title="Edit Project"
                           >
-                            {tag}
-                          </span>
-                        ))}
+                            ✏️ Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowDeleteProjectModal(proj._id)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              fontSize: "0.78rem",
+                              color: "#ef4444",
+                              fontWeight: "600",
+                              padding: 0,
+                            }}
+                            title="Delete Project"
+                          >
+                            🗑️ Delete
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))
                 ) : (
-                  // Default sample project cards like in mockup
-                  <>
-                    <div
-                      style={{
-                        background: "#f8fafc",
-                        border: "1px solid #e2e8f0",
-                        borderRadius: "14px",
-                        padding: "14px",
-                      }}
-                    >
-                      <h4
-                        style={{
-                          margin: "0 0 4px",
-                          fontSize: "0.95rem",
-                          fontWeight: "700",
-                          color: "#1e293b",
-                        }}
-                      >
-                        Project Alpha <span style={{ fontSize: "0.75rem", color: "#64748b" }}>(Python/Flask)</span>
-                      </h4>
-                      <p style={{ fontSize: "0.8rem", color: "#64748b", margin: "0 0 8px" }}>
-                        Microservices architecture for real-time analytics.
-                      </p>
-                      <div style={{ display: "flex", gap: "6px" }}>
-                        <span style={{ background: "#e2e8f0", fontSize: "0.7rem", padding: "2px 8px", borderRadius: "6px" }}>Python</span>
-                        <span style={{ background: "#e2e8f0", fontSize: "0.7rem", padding: "2px 8px", borderRadius: "6px" }}>Docker</span>
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        background: "#f8fafc",
-                        border: "1px solid #e2e8f0",
-                        borderRadius: "14px",
-                        padding: "14px",
-                      }}
-                    >
-                      <h4
-                        style={{
-                          margin: "0 0 4px",
-                          fontSize: "0.95rem",
-                          fontWeight: "700",
-                          color: "#1e293b",
-                        }}
-                      >
-                        Beta Web App <span style={{ fontSize: "0.75rem", color: "#64748b" }}>(React/Node)</span>
-                      </h4>
-                      <p style={{ fontSize: "0.8rem", color: "#64748b", margin: "0 0 8px" }}>
-                        Collaborative workspace for developer teams.
-                      </p>
-                      <div style={{ display: "flex", gap: "6px" }}>
-                        <span style={{ background: "#e0e7ff", color: "#4338ca", fontSize: "0.7rem", padding: "2px 8px", borderRadius: "6px" }}>React</span>
-                        <span style={{ background: "#e0e7ff", color: "#4338ca", fontSize: "0.7rem", padding: "2px 8px", borderRadius: "6px" }}>MongoDB</span>
-                      </div>
-                    </div>
-                  </>
+                  <div
+                    style={{
+                      background: "#f8fafc",
+                      border: "1px dashed #cbd5e1",
+                      borderRadius: "12px",
+                      padding: "24px 16px",
+                      textAlign: "center",
+                      color: "#64748b",
+                    }}
+                  >
+                    <p style={{ margin: "0 0 10px", fontSize: "0.85rem" }}>
+                      You haven't created any projects yet.
+                    </p>
+                  </div>
                 )}
               </div>
 
-              {/* Add New Project Button (Dark Navy Pill Button) */}
+              {/* Add New Project Button */}
               <Link
                 to="/projects/create"
                 style={{
@@ -1545,7 +1874,7 @@ function Profile() {
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          MODAL: EDIT PROFILE
+          MODAL 1: FULL PROFILE EDIT (Name, Title, Bio, Education, Socials)
          ═══════════════════════════════════════════════════════════════════════ */}
       {showEditModal && (
         <div
@@ -1602,9 +1931,23 @@ function Profile() {
             </div>
 
             <form onSubmit={handleUpdate}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginBottom: "14px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "14px",
+                  marginBottom: "14px",
+                }}
+              >
                 <div>
-                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "0.85rem",
+                      fontWeight: "700",
+                      marginBottom: "4px",
+                    }}
+                  >
                     Full Name *
                   </label>
                   <input
@@ -1617,7 +1960,14 @@ function Profile() {
                   />
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "0.85rem",
+                      fontWeight: "700",
+                      marginBottom: "4px",
+                    }}
+                  >
                     Professional Title/Role
                   </label>
                   <input
@@ -1632,7 +1982,14 @@ function Profile() {
               </div>
 
               <div style={{ marginBottom: "14px" }}>
-                <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "0.85rem",
+                    fontWeight: "700",
+                    marginBottom: "4px",
+                  }}
+                >
                   Personal Bio
                 </label>
                 <textarea
@@ -1641,28 +1998,28 @@ function Profile() {
                   rows="3"
                   value={formData.bio}
                   onChange={handleChange}
-                  placeholder="Passionate developer building scalable web apps..."
+                  placeholder="Tell others about your experience, interests, and what you're working on..."
                 />
               </div>
 
-              <div style={{ marginBottom: "14px" }}>
-                <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
-                  Skills (comma-separated with optional % e.g. Python (90%), React (85%))
-                </label>
-                <input
-                  className="form-input"
-                  type="text"
-                  name="skills"
-                  value={formData.skills}
-                  onChange={handleChange}
-                  placeholder="Python (90%), React (85%), Git (85%)"
-                />
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "14px", marginBottom: "14px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "2fr 1fr",
+                  gap: "14px",
+                  marginBottom: "14px",
+                }}
+              >
                 <div>
-                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
-                    Education Degree
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "0.85rem",
+                      fontWeight: "700",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Education Degree / Field
                   </label>
                   <input
                     className="form-input"
@@ -1674,8 +2031,15 @@ function Profile() {
                   />
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
-                    Years
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "0.85rem",
+                      fontWeight: "700",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Years / Duration
                   </label>
                   <input
                     className="form-input"
@@ -1683,15 +2047,29 @@ function Profile() {
                     name="educationYears"
                     value={formData.educationYears}
                     onChange={handleChange}
-                    placeholder="2019-2023"
+                    placeholder="e.g. 2019 - 2023"
                   />
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr 1fr",
+                  gap: "12px",
+                  marginBottom: "20px",
+                }}
+              >
                 <div>
-                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: "700", marginBottom: "4px" }}>
-                    GitHub URL
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "0.8rem",
+                      fontWeight: "700",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    GitHub (username or URL)
                   </label>
                   <input
                     className="form-input"
@@ -1699,11 +2077,18 @@ function Profile() {
                     name="github"
                     value={formData.github}
                     onChange={handleChange}
-                    placeholder="https://github.com/username"
+                    placeholder="github.com/username"
                   />
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: "700", marginBottom: "4px" }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "0.8rem",
+                      fontWeight: "700",
+                      marginBottom: "4px",
+                    }}
+                  >
                     LinkedIn URL
                   </label>
                   <input
@@ -1712,11 +2097,18 @@ function Profile() {
                     name="linkedin"
                     value={formData.linkedin}
                     onChange={handleChange}
-                    placeholder="https://linkedin.com/in/username"
+                    placeholder="linkedin.com/in/username"
                   />
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: "700", marginBottom: "4px" }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "0.8rem",
+                      fontWeight: "700",
+                      marginBottom: "4px",
+                    }}
+                  >
                     Portfolio URL
                   </label>
                   <input
@@ -1725,7 +2117,7 @@ function Profile() {
                     name="portfolio"
                     value={formData.portfolio}
                     onChange={handleChange}
-                    placeholder="https://myportfolio.com"
+                    placeholder="myportfolio.com"
                   />
                 </div>
               </div>
@@ -1748,7 +2140,7 @@ function Profile() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          MODAL: ADD SKILL INLINE
+          MODAL 2: ADD / EDIT SKILL (Real CRUD)
          ═══════════════════════════════════════════════════════════════════════ */}
       {showAddSkillModal && (
         <div
@@ -1778,31 +2170,50 @@ function Profile() {
             }}
           >
             <h3 style={{ margin: "0 0 16px", fontSize: "1.2rem", fontWeight: "800" }}>
-              Add a Skill
+              {editingSkillIndex !== null ? "Edit Skill" : "Add a New Skill"}
             </h3>
             <div style={{ marginBottom: "14px" }}>
-              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
-                Skill Name
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.85rem",
+                  fontWeight: "700",
+                  marginBottom: "4px",
+                }}
+              >
+                Skill Name *
               </label>
               <input
                 className="form-input"
                 type="text"
-                placeholder="e.g. Next.js, TypeScript, Docker"
-                value={newSkillName}
-                onChange={(e) => setNewSkillName(e.target.value)}
+                placeholder="e.g. React, Node.js, Python, Docker"
+                value={skillInputName}
+                onChange={(e) => setSkillInputName(e.target.value)}
                 autoFocus
               />
             </div>
             <div style={{ marginBottom: "20px" }}>
-              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
-                Proficiency Level ({newSkillPercent}%)
-              </label>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginBottom: "4px",
+                }}
+              >
+                <label style={{ fontSize: "0.85rem", fontWeight: "700" }}>
+                  Proficiency Level
+                </label>
+                <span style={{ fontWeight: "700", color: "#f97316" }}>
+                  {skillInputPercent}%
+                </span>
+              </div>
               <input
                 type="range"
-                min="40"
+                min="10"
                 max="100"
-                value={newSkillPercent}
-                onChange={(e) => setNewSkillPercent(Number(e.target.value))}
+                step="5"
+                value={skillInputPercent}
+                onChange={(e) => setSkillInputPercent(Number(e.target.value))}
                 style={{ width: "100%", accentColor: "#f97316" }}
               />
             </div>
@@ -1817,10 +2228,192 @@ function Profile() {
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
-                onClick={handleAddSkill}
-                disabled={!newSkillName.trim()}
+                onClick={handleSaveSkill}
+                disabled={!skillInputName.trim()}
               >
-                Add Skill
+                {editingSkillIndex !== null ? "Update Skill" : "Save Skill"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          MODAL 3: ADD / EDIT CERTIFICATION (Real CRUD)
+         ═══════════════════════════════════════════════════════════════════════ */}
+      {showAddCertModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.6)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 999,
+            padding: "20px",
+          }}
+        >
+          <div
+            style={{
+              background: "#ffffff",
+              borderRadius: "20px",
+              width: "100%",
+              maxWidth: "460px",
+              padding: "24px",
+              boxShadow: "0 20px 40px rgba(0, 0, 0, 0.2)",
+            }}
+          >
+            <h3 style={{ margin: "0 0 16px", fontSize: "1.2rem", fontWeight: "800" }}>
+              {editingCertIndex !== null ? "Edit Certification" : "Add Certification"}
+            </h3>
+
+            <div style={{ marginBottom: "14px" }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.85rem",
+                  fontWeight: "700",
+                  marginBottom: "4px",
+                }}
+              >
+                Certification Name *
+              </label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="e.g. AWS Certified Cloud Practitioner"
+                value={certFormData.name}
+                onChange={(e) =>
+                  setCertFormData({ ...certFormData, name: e.target.value })
+                }
+                autoFocus
+                required
+              />
+            </div>
+
+            <div style={{ marginBottom: "14px" }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.85rem",
+                  fontWeight: "700",
+                  marginBottom: "4px",
+                }}
+              >
+                Completed Date / Year
+              </label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="e.g. 2023-09-15 or Sep 2023"
+                value={certFormData.completed}
+                onChange={(e) =>
+                  setCertFormData({ ...certFormData, completed: e.target.value })
+                }
+              />
+            </div>
+
+            <div style={{ marginBottom: "20px" }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.85rem",
+                  fontWeight: "700",
+                  marginBottom: "4px",
+                }}
+              >
+                Issuing Organization / Authority
+              </label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="e.g. AWS, Google, Meta, Microsoft, Coursera"
+                value={certFormData.issuer}
+                onChange={(e) =>
+                  setCertFormData({ ...certFormData, issuer: e.target.value })
+                }
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setShowAddCertModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleSaveCertification}
+                disabled={!certFormData.name.trim()}
+              >
+                {editingCertIndex !== null ? "Update" : "Save Certification"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          MODAL 4: CONFIRM DELETE PROJECT
+         ═══════════════════════════════════════════════════════════════════════ */}
+      {showDeleteProjectModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.6)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 999,
+            padding: "20px",
+          }}
+        >
+          <div
+            style={{
+              background: "#ffffff",
+              borderRadius: "20px",
+              width: "100%",
+              maxWidth: "400px",
+              padding: "24px",
+              boxShadow: "0 20px 40px rgba(0, 0, 0, 0.2)",
+              textAlign: "center",
+            }}
+          >
+            <div style={{ fontSize: "2.5rem", marginBottom: "10px" }}>🗑️</div>
+            <h3 style={{ margin: "0 0 8px", fontSize: "1.2rem", fontWeight: "800" }}>
+              Delete this project?
+            </h3>
+            <p style={{ fontSize: "0.85rem", color: "#64748b", margin: "0 0 20px" }}>
+              This action cannot be undone. All project data and comments will be permanently removed.
+            </p>
+            <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowDeleteProjectModal(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={deletingProjectId !== null}
+                onClick={() => handleDeleteProject(showDeleteProjectModal)}
+              >
+                {deletingProjectId ? "Deleting..." : "Yes, Delete Project"}
               </button>
             </div>
           </div>
