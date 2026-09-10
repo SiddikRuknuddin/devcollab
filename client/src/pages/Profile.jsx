@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../context/AuthContext";
 
 function Profile() {
   const { token, refreshProfile } = useAuth();
+  const navigate = useNavigate();
 
   const [user, setUser] = useState(null);
   const [projects, setProjects] = useState([]);
@@ -13,26 +14,34 @@ function Profile() {
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
-  // Modals
+  // Modals state
   const [showEditModal, setShowEditModal] = useState(false);
-  const [activeTab, setActiveTab] = useState("general"); // "general", "skills", "certs", "social"
   const [showAddSkillModal, setShowAddSkillModal] = useState(false);
+  const [showAddCertModal, setShowAddCertModal] = useState(false);
+  const [showDeleteProjectModal, setShowDeleteProjectModal] = useState(null); // holds project id
+  const [deletingProjectId, setDeletingProjectId] = useState(null);
 
-  // Add Skill mini-state
-  const [newSkillName, setNewSkillName] = useState("");
-  const [newSkillPercent, setNewSkillPercent] = useState(85);
+  // Add / Edit Skill state
+  const [skillInputName, setSkillInputName] = useState("");
+  const [skillInputPercent, setSkillInputPercent] = useState(85);
+  const [editingSkillIndex, setEditingSkillIndex] = useState(null);
 
-  // Add Certification mini-state (inside edit modal)
-  const [newCert, setNewCert] = useState({ name: "", completed: "", issuer: "" });
+  // Add / Edit Certification state
+  const [certFormData, setCertFormData] = useState({
+    name: "",
+    completed: "",
+    issuer: "",
+  });
+  const [editingCertIndex, setEditingCertIndex] = useState(null);
 
-  // Photo upload
+  // Image upload state
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
   const [imageError, setImageError] = useState("");
   const fileInputRef = useRef(null);
 
-  // Form State
+  // Main Form Data
   const [formData, setFormData] = useState({
     name: "",
     title: "",
@@ -42,6 +51,7 @@ function Profile() {
     linkedin: "",
     portfolio: "",
     location: "",
+    experience: "",
     education: "",
     educationYears: "",
     certifications: [],
@@ -71,6 +81,7 @@ function Profile() {
           linkedin: userData.linkedin || "",
           portfolio: userData.portfolio || "",
           location: userData.location || "",
+          experience: userData.experience || "",
           education: eduParts[0] || "",
           educationYears: eduParts[1] || "",
           certifications: userData.certifications || [],
@@ -91,11 +102,12 @@ function Profile() {
     if (token) fetchProfileData();
   }, [token]);
 
+  // ── Input Change ───────────────────────────────────────────────────────────
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // ── Photo Upload ───────────────────────────────────────────────────────────
+  // ── Image Handlers (Upload & Delete) ───────────────────────────────────────
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -142,9 +154,26 @@ function Profile() {
     }
   };
 
+  const handleRemoveImage = async () => {
+    if (!window.confirm("Are you sure you want to remove your profile photo?")) return;
+    try {
+      setUploadingImage(true);
+      const res = await api.put("/api/users/profile", { profileImage: "" });
+      setUser(res.data.user);
+      setImagePreview("");
+      setImageFile(null);
+      setSuccessMessage("Profile photo removed.");
+      await refreshProfile();
+    } catch (err) {
+      setError("Failed to remove profile photo.");
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
   // ── Save Full Profile ──────────────────────────────────────────────────────
   const handleUpdate = async (e) => {
-    if (e) e.preventDefault();
+    e.preventDefault();
     setSaving(true);
     setError("");
     setSuccessMessage("");
@@ -163,6 +192,7 @@ function Profile() {
         linkedin: formData.linkedin,
         portfolio: formData.portfolio,
         location: formData.location,
+        experience: formData.experience,
         education: fullEducation,
         certifications: formData.certifications,
       });
@@ -179,52 +209,150 @@ function Profile() {
     }
   };
 
-  // ── Quick Add Skill from Main Page button ──────────────────────────────────
-  const handleQuickAddSkill = async () => {
-    if (!newSkillName.trim()) return;
-    const skillFormatted = `${newSkillName.trim()} (${newSkillPercent}%)`;
-    const updatedSkills = [...(user?.skills || []), skillFormatted];
+  // ── SKILLS CRUD ────────────────────────────────────────────────────────────
+  const openAddSkillModal = (index = null) => {
+    if (index !== null) {
+      // Edit existing skill
+      const current = user?.skills?.[index] || "";
+      const match = current.match(/^(.+?)\s*(?:\(([0-9]{1,3})%\))?$/);
+      setSkillInputName(match ? match[1].trim() : current);
+      setSkillInputPercent(match && match[2] ? Number(match[2]) : 85);
+      setEditingSkillIndex(index);
+    } else {
+      setSkillInputName("");
+      setSkillInputPercent(85);
+      setEditingSkillIndex(null);
+    }
+    setShowAddSkillModal(true);
+  };
+
+  const handleSaveSkill = async () => {
+    if (!skillInputName.trim()) return;
+
+    const skillStr = `${skillInputName.trim()} (${skillInputPercent}%)`;
+    let updatedSkills = [...(user?.skills || [])];
+
+    if (editingSkillIndex !== null) {
+      updatedSkills[editingSkillIndex] = skillStr;
+    } else {
+      updatedSkills.push(skillStr);
+    }
 
     try {
       const res = await api.put("/api/users/profile", { skills: updatedSkills });
       setUser(res.data.user);
       setFormData((prev) => ({ ...prev, skills: res.data.user.skills }));
-      setNewSkillName("");
       setShowAddSkillModal(false);
-      setSuccessMessage(`Skill "${skillFormatted}" added!`);
+      setSuccessMessage(
+        editingSkillIndex !== null ? "Skill updated!" : `Skill "${skillStr}" added!`
+      );
     } catch (err) {
-      setError("Failed to add skill.");
+      setError("Failed to save skill.");
     }
   };
 
-  // ── Inside Modal: Skills & Certifications Helpers ──────────────────────────
-  const handleRemoveSkillInModal = (indexToRemove) => {
-    const updated = formData.skills.filter((_, idx) => idx !== indexToRemove);
-    setFormData({ ...formData, skills: updated });
+  const handleDeleteSkill = async (indexToDelete) => {
+    const skillToDelete = user?.skills?.[indexToDelete];
+    if (!window.confirm(`Delete skill "${skillToDelete}"?`)) return;
+
+    const updatedSkills = user.skills.filter((_, idx) => idx !== indexToDelete);
+
+    try {
+      const res = await api.put("/api/users/profile", { skills: updatedSkills });
+      setUser(res.data.user);
+      setFormData((prev) => ({ ...prev, skills: res.data.user.skills }));
+      setSuccessMessage("Skill deleted successfully.");
+    } catch (err) {
+      setError("Failed to delete skill.");
+    }
   };
 
-  const handleAddSkillInModal = () => {
-    if (!newSkillName.trim()) return;
-    const formatted = `${newSkillName.trim()} (${newSkillPercent}%)`;
-    setFormData({ ...formData, skills: [...formData.skills, formatted] });
-    setNewSkillName("");
+  // ── CERTIFICATIONS CRUD ────────────────────────────────────────────────────
+  const openAddCertModal = (index = null) => {
+    if (index !== null) {
+      const cert = user?.certifications?.[index] || {};
+      setCertFormData({
+        name: cert.name || "",
+        completed: cert.completed || "",
+        issuer: cert.issuer || "",
+      });
+      setEditingCertIndex(index);
+    } else {
+      setCertFormData({ name: "", completed: "", issuer: "" });
+      setEditingCertIndex(null);
+    }
+    setShowAddCertModal(true);
   };
 
-  const handleAddCertInModal = () => {
-    if (!newCert.name.trim()) return;
-    setFormData({
-      ...formData,
-      certifications: [...formData.certifications, newCert],
-    });
-    setNewCert({ name: "", completed: "", issuer: "" });
+  const handleSaveCertification = async () => {
+    if (!certFormData.name.trim()) return;
+
+    let updatedCerts = [...(user?.certifications || [])];
+
+    if (editingCertIndex !== null) {
+      updatedCerts[editingCertIndex] = certFormData;
+    } else {
+      updatedCerts.push(certFormData);
+    }
+
+    try {
+      const res = await api.put("/api/users/profile", { certifications: updatedCerts });
+      setUser(res.data.user);
+      setFormData((prev) => ({ ...prev, certifications: res.data.user.certifications }));
+      setShowAddCertModal(false);
+      setSuccessMessage(
+        editingCertIndex !== null ? "Certification updated!" : "Certification added!"
+      );
+    } catch (err) {
+      setError("Failed to save certification.");
+    }
   };
 
-  const handleRemoveCertInModal = (indexToRemove) => {
-    const updated = formData.certifications.filter((_, idx) => idx !== indexToRemove);
-    setFormData({ ...formData, certifications: updated });
+  const handleDeleteCertification = async (indexToDelete) => {
+    const cert = user?.certifications?.[indexToDelete];
+    if (!window.confirm(`Delete certification "${cert?.name}"?`)) return;
+
+    const updatedCerts = user.certifications.filter((_, idx) => idx !== indexToDelete);
+
+    try {
+      const res = await api.put("/api/users/profile", { certifications: updatedCerts });
+      setUser(res.data.user);
+      setFormData((prev) => ({ ...prev, certifications: res.data.user.certifications }));
+      setSuccessMessage("Certification deleted.");
+    } catch (err) {
+      setError("Failed to delete certification.");
+    }
   };
 
-  // ── Parsers & Helpers ──────────────────────────────────────────────────────
+  // ── PROJECT DELETE ─────────────────────────────────────────────────────────
+  const handleDeleteProject = async (projectId) => {
+    try {
+      setDeletingProjectId(projectId);
+      await api.delete(`/api/projects/${projectId}`);
+      setProjects((prev) => prev.filter((p) => p._id !== projectId));
+      setShowDeleteProjectModal(null);
+      setSuccessMessage("Project deleted successfully.");
+    } catch (err) {
+      setError(err.response?.data?.message || "Failed to delete project.");
+    } finally {
+      setDeletingProjectId(null);
+    }
+  };
+
+  // ── Social Link Disconnect ─────────────────────────────────────────────────
+  const handleClearSocialLink = async (field) => {
+    if (!window.confirm(`Disconnect ${field}?`)) return;
+    try {
+      const res = await api.put("/api/users/profile", { [field]: "" });
+      setUser(res.data.user);
+      setFormData((prev) => ({ ...prev, [field]: "" }));
+      setSuccessMessage(`${field} disconnected.`);
+    } catch (err) {
+      setError(`Failed to disconnect ${field}`);
+    }
+  };
+
+  // ── Helper parsing ─────────────────────────────────────────────────────────
   const initials = user?.name
     ? user.name
         .split(" ")
@@ -237,6 +365,7 @@ function Profile() {
   const linkHref = (url) =>
     url && !url.startsWith("http") ? `https://${url}` : url;
 
+  // Extract GitHub username if available
   const extractGithubUsername = (urlOrName) => {
     if (!urlOrName) return "";
     const clean = urlOrName.trim().replace(/\/$/, "");
@@ -248,12 +377,13 @@ function Profile() {
 
   const githubUsername = extractGithubUsername(user?.github);
 
+  // Parse skills
   const parsedSkills = (user?.skills || []).map((skillStr) => {
     const match = skillStr.match(/^(.+?)\s*(?:\(([0-9]{1,3})%\))?$/);
     if (match) {
-      return { name: match[1], percent: match[2] || null };
+      return { name: match[1], percent: match[2] || null, raw: skillStr };
     }
-    return { name: skillStr, percent: null };
+    return { name: skillStr, percent: null, raw: skillStr };
   });
 
   const currentCerts = user?.certifications || [];
@@ -269,7 +399,7 @@ function Profile() {
           justifyContent: "center",
         }}
       >
-        <div className="loading-container">Loading your profile...</div>
+        <div className="loading-container">Loading your real profile...</div>
       </div>
     );
   }
@@ -340,7 +470,7 @@ function Profile() {
           </div>
         )}
 
-        {/* 2-Column Grid Matching Mockup */}
+        {/* 2-Column Grid */}
         <div
           style={{
             display: "grid",
@@ -350,7 +480,7 @@ function Profile() {
           }}
         >
           {/* ═══════════════════════════════════════════════════════════════════
-              LEFT COLUMN — Main Clean Card (Only Main Edit Place)
+              LEFT COLUMN — Main Profile Card (100% Real, Editable, Deletable)
              ═══════════════════════════════════════════════════════════════════ */}
           <div
             style={{
@@ -363,7 +493,7 @@ function Profile() {
               position: "relative",
             }}
           >
-            {/* Top User Header Section */}
+            {/* Top User Info Section */}
             <div
               style={{
                 display: "flex",
@@ -373,7 +503,7 @@ function Profile() {
                 marginBottom: "32px",
               }}
             >
-              {/* Avatar + Status + Main Edit Profile Button */}
+              {/* Avatar + Status + Edit Controls */}
               <div
                 style={{
                   display: "flex",
@@ -452,7 +582,7 @@ function Profile() {
                   Online
                 </div>
 
-                {/* MAIN EDIT PROFILE BUTTON */}
+                {/* Edit Profile Pill Button */}
                 <button
                   type="button"
                   onClick={() => setShowEditModal(true)}
@@ -464,7 +594,7 @@ function Profile() {
                     color: "#ffffff",
                     border: "none",
                     borderRadius: "9999px",
-                    padding: "8px 20px",
+                    padding: "8px 18px",
                     fontSize: "0.85rem",
                     fontWeight: "600",
                     cursor: "pointer",
@@ -477,7 +607,7 @@ function Profile() {
                   ✏️ Edit Profile
                 </button>
 
-                {/* Hidden File Input for photo */}
+                {/* Hidden File Input */}
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -485,22 +615,44 @@ function Profile() {
                   style={{ display: "none" }}
                   onChange={handleImageChange}
                 />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "#6366f1",
-                    fontSize: "0.76rem",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                    marginTop: "8px",
-                    textDecoration: "underline",
-                  }}
-                >
-                  📷 Change Photo
-                </button>
+
+                <div style={{ display: "flex", gap: "8px", marginTop: "8px", alignItems: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#6366f1",
+                      fontSize: "0.76rem",
+                      fontWeight: "600",
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    📷 Upload Photo
+                  </button>
+
+                  {user?.profileImage && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      disabled={uploadingImage}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#ef4444",
+                        fontSize: "0.76rem",
+                        fontWeight: "600",
+                        cursor: "pointer",
+                        textDecoration: "underline",
+                      }}
+                      title="Delete profile picture"
+                    >
+                      🗑️ Remove
+                    </button>
+                  )}
+                </div>
 
                 {imageFile && (
                   <div style={{ marginTop: "8px", textAlign: "center" }}>
@@ -548,7 +700,7 @@ function Profile() {
 
               {/* Name, Role & Bio */}
               <div style={{ flex: 1, minWidth: "260px" }}>
-                {/* User Name with pencil icon */}
+                {/* User Name with Edit Icon */}
                 <div
                   style={{
                     display: "flex",
@@ -568,18 +720,15 @@ function Profile() {
                     {user?.name || "Developer"}
                   </h2>
                   <button
-                    onClick={() => {
-                      setActiveTab("general");
-                      setShowEditModal(true);
-                    }}
+                    onClick={() => setShowEditModal(true)}
                     style={{
                       background: "none",
                       border: "none",
                       cursor: "pointer",
                       color: "#64748b",
-                      fontSize: "1rem",
+                      fontSize: "1.1rem",
                     }}
-                    title="Edit in Main Form"
+                    title="Edit Name"
                   >
                     ✏️
                   </button>
@@ -587,17 +736,37 @@ function Profile() {
 
                 {/* Professional Title/Role */}
                 <div style={{ marginBottom: "16px" }}>
-                  <label
+                  <div
                     style={{
-                      display: "block",
-                      fontSize: "0.85rem",
-                      fontWeight: "700",
-                      color: "#1e293b",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
                       marginBottom: "6px",
                     }}
                   >
-                    Professional Title/Role
-                  </label>
+                    <label
+                      style={{
+                        fontSize: "0.85rem",
+                        fontWeight: "700",
+                        color: "#1e293b",
+                      }}
+                    >
+                      Professional Title/Role
+                    </label>
+                    <button
+                      onClick={() => setShowEditModal(true)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "#64748b",
+                        fontSize: "0.85rem",
+                      }}
+                      title="Edit Title/Role"
+                    >
+                      ✏️ Edit
+                    </button>
+                  </div>
                   <div
                     style={{
                       background: "#f1f5f9",
@@ -610,7 +779,7 @@ function Profile() {
                       fontStyle: user?.title ? "normal" : "italic",
                     }}
                   >
-                    {user?.title || "No professional title set. Click Edit Profile to add."}
+                    {user?.title || "No professional title set. Click Edit to add one."}
                   </div>
                 </div>
 
@@ -634,10 +803,7 @@ function Profile() {
                       Personal Bio
                     </label>
                     <button
-                      onClick={() => {
-                        setActiveTab("general");
-                        setShowEditModal(true);
-                      }}
+                      onClick={() => setShowEditModal(true)}
                       style={{
                         background: "none",
                         border: "none",
@@ -647,7 +813,7 @@ function Profile() {
                       }}
                       title="Edit Bio"
                     >
-                      ✏️
+                      ✏️ Edit
                     </button>
                   </div>
                   <div
@@ -662,7 +828,7 @@ function Profile() {
                       fontStyle: user?.bio ? "normal" : "italic",
                     }}
                   >
-                    {user?.bio || "Passionate about building scalable web applications and collaborating on open-source projects."}
+                    {user?.bio || "No personal bio added yet. Click Edit to tell others about yourself."}
                   </div>
                 </div>
               </div>
@@ -671,7 +837,7 @@ function Profile() {
             {/* Divider */}
             <hr style={{ border: "none", borderTop: "1px solid #f1f5f9", margin: "24px 0" }} />
 
-            {/* ── Skills & Expertise Section (Clean UI) ───────────────────── */}
+            {/* ── Skills & Expertise Section (Real CRUD) ──────────────────── */}
             <div style={{ marginBottom: "32px" }}>
               <div
                 style={{
@@ -693,14 +859,13 @@ function Profile() {
                       color: "#1e293b",
                     }}
                   >
-                    Skills &amp; Expertise
+                    Skills &amp; Expertise ({parsedSkills.length})
                   </h3>
                 </div>
 
-                {/* Clean + Add Skill Pill Button */}
                 <button
                   type="button"
-                  onClick={() => setShowAddSkillModal(true)}
+                  onClick={() => openAddSkillModal()}
                   style={{
                     background: "linear-gradient(135deg, #fed7aa 0%, #fdba74 100%)",
                     color: "#9a3412",
@@ -716,11 +881,10 @@ function Profile() {
                   onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.03)")}
                   onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
                 >
-                  {parsedSkills.length === 0 ? "Add Your First Skill" : "+ Add Skill"}
+                  + Add Skill
                 </button>
               </div>
 
-              {/* Clean Skill Pills (No action buttons cluttering the view) */}
               {parsedSkills.length > 0 ? (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
                   {parsedSkills.map((skill, i) => (
@@ -728,34 +892,71 @@ function Profile() {
                       key={i}
                       style={{
                         display: "inline-flex",
-                        flexDirection: "column",
                         alignItems: "center",
+                        gap: "10px",
                         background: "#f1f5f9",
                         borderRadius: "12px",
-                        padding: "8px 16px",
+                        padding: "8px 14px",
                         border: "1px solid #e2e8f0",
+                        position: "relative",
                       }}
                     >
-                      <span
-                        style={{
-                          fontWeight: "700",
-                          fontSize: "0.92rem",
-                          color: "#1e293b",
-                        }}
-                      >
-                        {skill.name}
-                      </span>
-                      {skill.percent && (
+                      <div style={{ display: "flex", flexDirection: "column" }}>
                         <span
                           style={{
-                            fontSize: "0.74rem",
-                            fontWeight: "600",
-                            color: "#64748b",
+                            fontWeight: "700",
+                            fontSize: "0.92rem",
+                            color: "#1e293b",
                           }}
                         >
-                          {skill.percent}%
+                          {skill.name}
                         </span>
-                      )}
+                        {skill.percent && (
+                          <span
+                            style={{
+                              fontSize: "0.74rem",
+                              fontWeight: "600",
+                              color: "#64748b",
+                            }}
+                          >
+                            {skill.percent}%
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Edit & Delete Actions */}
+                      <div style={{ display: "flex", gap: "4px" }}>
+                        <button
+                          type="button"
+                          onClick={() => openAddSkillModal(i)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            fontSize: "0.75rem",
+                            color: "#64748b",
+                            padding: "2px",
+                          }}
+                          title="Edit skill"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSkill(i)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            fontSize: "0.75rem",
+                            color: "#ef4444",
+                            padding: "2px",
+                          }}
+                          title="Delete skill"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -771,90 +972,164 @@ function Profile() {
                     fontSize: "0.9rem",
                   }}
                 >
-                  No skills added yet. Click <strong>Add Your First Skill</strong> or <strong>Edit Profile</strong>.
+                  No skills added yet. Click <strong>+ Add Skill</strong> to showcase your tech stack!
                 </div>
               )}
             </div>
 
-            {/* ── Certifications Table (Clean UI, No Action Icons) ────────── */}
+            {/* ── Certifications Section (Real CRUD) ──────────────────────── */}
             <div style={{ marginBottom: "32px" }}>
               <div
                 style={{
-                  background: "#fed7aa",
-                  borderRadius: "12px 12px 0 0",
-                  padding: "10px 18px",
-                  display: "grid",
-                  gridTemplateColumns: "2fr 1fr 1fr",
-                  fontWeight: "700",
-                  fontSize: "0.85rem",
-                  color: "#7c2d12",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "12px",
                 }}
               >
-                <span>Certifications</span>
-                <span>Completed</span>
-                <span style={{ textAlign: "right" }}>Issuing</span>
-              </div>
-
-              <div
-                style={{
-                  border: "1px solid #fed7aa",
-                  borderTop: "none",
-                  borderRadius: "0 0 12px 12px",
-                  overflow: "hidden",
-                }}
-              >
-                {currentCerts.length > 0 ? (
-                  currentCerts.map((cert, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "2fr 1fr 1fr",
-                        alignItems: "center",
-                        padding: "12px 18px",
-                        borderBottom:
-                          idx === currentCerts.length - 1 ? "none" : "1px solid #f1f5f9",
-                        background: idx % 2 === 0 ? "#ffffff" : "#fffbf5",
-                        fontSize: "0.9rem",
-                      }}
-                    >
-                      <span style={{ fontWeight: "600", color: "#1e293b" }}>{cert.name}</span>
-                      <span style={{ color: "#64748b", fontSize: "0.85rem" }}>
-                        {cert.completed || "Verified"}
-                      </span>
-                      <span style={{ textAlign: "right" }}>
-                        <span
-                          style={{
-                            background: "#e0e7ff",
-                            color: "#3730a3",
-                            fontSize: "0.75rem",
-                            padding: "3px 8px",
-                            borderRadius: "6px",
-                            fontWeight: "700",
-                          }}
-                        >
-                          {cert.issuer || "Official"}
-                        </span>
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <div
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "1.2rem" }}>📜</span>
+                  <h3
                     style={{
-                      padding: "20px",
-                      textAlign: "center",
-                      color: "#64748b",
-                      fontSize: "0.88rem",
-                      background: "#ffffff",
+                      margin: 0,
+                      fontSize: "1.15rem",
+                      fontWeight: "700",
+                      color: "#1e293b",
                     }}
                   >
-                    No certifications added yet. (Add via Edit Profile)
-                  </div>
-                )}
+                    Certifications ({currentCerts.length})
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openAddCertModal()}
+                  style={{
+                    background: "#f1f5f9",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: "9999px",
+                    padding: "6px 16px",
+                    fontSize: "0.82rem",
+                    fontWeight: "600",
+                    color: "#334155",
+                    cursor: "pointer",
+                  }}
+                >
+                  + Add Certification
+                </button>
               </div>
+
+              {currentCerts.length > 0 ? (
+                <>
+                  <div
+                    style={{
+                      background: "#fed7aa",
+                      borderRadius: "12px 12px 0 0",
+                      padding: "10px 18px",
+                      display: "grid",
+                      gridTemplateColumns: "2.5fr 1.5fr 1.5fr 70px",
+                      fontWeight: "700",
+                      fontSize: "0.85rem",
+                      color: "#7c2d12",
+                    }}
+                  >
+                    <span>Certification Name</span>
+                    <span>Completed</span>
+                    <span>Issuing Body</span>
+                    <span style={{ textAlign: "right" }}>Actions</span>
+                  </div>
+
+                  <div
+                    style={{
+                      border: "1px solid #fed7aa",
+                      borderTop: "none",
+                      borderRadius: "0 0 12px 12px",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {currentCerts.map((cert, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "2.5fr 1.5fr 1.5fr 70px",
+                          alignItems: "center",
+                          padding: "12px 18px",
+                          borderBottom:
+                            idx === currentCerts.length - 1 ? "none" : "1px solid #f1f5f9",
+                          background: idx % 2 === 0 ? "#ffffff" : "#fffbf5",
+                          fontSize: "0.9rem",
+                        }}
+                      >
+                        <span style={{ fontWeight: "600", color: "#1e293b" }}>{cert.name}</span>
+                        <span style={{ color: "#64748b", fontSize: "0.85rem" }}>
+                          {cert.completed || "Verified"}
+                        </span>
+                        <span>
+                          <span
+                            style={{
+                              background: "#e0e7ff",
+                              color: "#3730a3",
+                              fontSize: "0.75rem",
+                              padding: "3px 8px",
+                              borderRadius: "6px",
+                              fontWeight: "700",
+                            }}
+                          >
+                            {cert.issuer || "Official"}
+                          </span>
+                        </span>
+                        <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px" }}>
+                          <button
+                            type="button"
+                            onClick={() => openAddCertModal(idx)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              fontSize: "0.85rem",
+                              color: "#64748b",
+                            }}
+                            title="Edit certification"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCertification(idx)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              fontSize: "0.85rem",
+                              color: "#ef4444",
+                            }}
+                            title="Delete certification"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div
+                  style={{
+                    background: "#f8fafc",
+                    border: "1px dashed #cbd5e1",
+                    borderRadius: "12px",
+                    padding: "20px",
+                    textAlign: "center",
+                    color: "#64748b",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  No certifications added yet. Click <strong>+ Add Certification</strong> to list your verified credentials.
+                </div>
+              )}
             </div>
 
-            {/* ── Education Card (Clean UI) ───────────────────────────────── */}
+            {/* ── Education Section (Real CRUD) ───────────────────────────── */}
             <div
               style={{
                 background: "#f8fafc",
@@ -863,55 +1138,80 @@ function Profile() {
                 border: "1px solid #e2e8f0",
                 display: "flex",
                 alignItems: "center",
+                justifyContent: "space-between",
                 gap: "20px",
                 marginBottom: "32px",
               }}
             >
-              <div
-                style={{
-                  width: "56px",
-                  height: "56px",
-                  borderRadius: "14px",
-                  background: "#e0e7ff",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "1.8rem",
-                  flexShrink: 0,
-                }}
-              >
-                🎓
-              </div>
-              <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "20px", flex: 1 }}>
                 <div
                   style={{
-                    fontSize: "0.8rem",
-                    fontWeight: "700",
-                    color: "#6366f1",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
-                    marginBottom: "4px",
+                    width: "56px",
+                    height: "56px",
+                    borderRadius: "14px",
+                    background: "#e0e7ff",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "1.8rem",
+                    flexShrink: 0,
                   }}
                 >
-                  Education
+                  🎓
                 </div>
-                <h4
+                <div>
+                  <div
+                    style={{
+                      fontSize: "0.8rem",
+                      fontWeight: "700",
+                      color: "#6366f1",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Education
+                  </div>
+                  <h4
+                    style={{
+                      margin: 0,
+                      fontSize: "1.05rem",
+                      fontWeight: "700",
+                      color: user?.education ? "#0f172a" : "#94a3b8",
+                      fontStyle: user?.education ? "normal" : "italic",
+                    }}
+                  >
+                    {user?.education?.split(" - ")[0] || "No education added yet."}
+                  </h4>
+                  {user?.education?.split(" - ")[1] && (
+                    <p style={{ margin: "3px 0 0", color: "#64748b", fontSize: "0.85rem" }}>
+                      {user.education.split(" - ")[1]}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(true)}
                   style={{
-                    margin: 0,
-                    fontSize: "1.05rem",
-                    fontWeight: "700",
-                    color: user?.education ? "#0f172a" : "#94a3b8",
+                    background: "none",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: "8px",
+                    padding: "6px 14px",
+                    fontSize: "0.8rem",
+                    fontWeight: "600",
+                    color: "#334155",
+                    cursor: "pointer",
                   }}
                 >
-                  {user?.education?.split(" - ")[0] || "Bachelor of Science in Computer Science"}
-                </h4>
-                <p style={{ margin: "3px 0 0", color: "#64748b", fontSize: "0.85rem" }}>
-                  {user?.education?.split(" - ")[1] || "2019 - 2023"}
-                </p>
+                  ✏️ Edit Education
+                </button>
               </div>
             </div>
 
-            {/* ── Links & Social Row (Clean UI) ───────────────────────────── */}
+            {/* ── Links & Social Row (Real URLs & Disconnect) ─────────────── */}
             <div>
               <div
                 style={{
@@ -942,17 +1242,7 @@ function Profile() {
                 }}
               >
                 {/* GitHub */}
-                <a
-                  href={user?.github ? linkHref(user.github) : "#"}
-                  target={user?.github ? "_blank" : "_self"}
-                  rel="noopener noreferrer"
-                  onClick={(e) => {
-                    if (!user?.github) {
-                      e.preventDefault();
-                      setActiveTab("social");
-                      setShowEditModal(true);
-                    }
-                  }}
+                <div
                   style={{
                     display: "flex",
                     flexDirection: "column",
@@ -961,9 +1251,27 @@ function Profile() {
                     background: "#f8fafc",
                     border: "1.5px solid #e2e8f0",
                     borderRadius: "16px",
-                    textDecoration: "none",
+                    position: "relative",
                   }}
                 >
+                  {user?.github && (
+                    <button
+                      onClick={() => handleClearSocialLink("github")}
+                      style={{
+                        position: "absolute",
+                        top: "8px",
+                        right: "8px",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "#ef4444",
+                        fontSize: "0.75rem",
+                      }}
+                      title="Disconnect GitHub"
+                    >
+                      ✕
+                    </button>
+                  )}
                   <div
                     style={{
                       width: "48px",
@@ -983,30 +1291,43 @@ function Profile() {
                   <span style={{ fontWeight: "700", color: "#0f172a", fontSize: "0.85rem" }}>
                     GitHub
                   </span>
-                  <span
-                    style={{
-                      fontSize: "0.74rem",
-                      fontWeight: "600",
-                      color: user?.github ? "#16a34a" : "#6366f1",
-                      marginTop: "4px",
-                    }}
-                  >
-                    {user?.github ? "Connected ✅" : "Connect Now"}
-                  </span>
-                </a>
+                  {user?.github ? (
+                    <a
+                      href={linkHref(user.github)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        fontSize: "0.74rem",
+                        fontWeight: "600",
+                        color: "#16a34a",
+                        marginTop: "4px",
+                        textDecoration: "none",
+                      }}
+                    >
+                      Connected 🔗
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowEditModal(true)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        fontSize: "0.74rem",
+                        fontWeight: "600",
+                        color: "#6366f1",
+                        marginTop: "4px",
+                        cursor: "pointer",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      Connect Now
+                    </button>
+                  )}
+                </div>
 
                 {/* LinkedIn */}
-                <a
-                  href={user?.linkedin ? linkHref(user.linkedin) : "#"}
-                  target={user?.linkedin ? "_blank" : "_self"}
-                  rel="noopener noreferrer"
-                  onClick={(e) => {
-                    if (!user?.linkedin) {
-                      e.preventDefault();
-                      setActiveTab("social");
-                      setShowEditModal(true);
-                    }
-                  }}
+                <div
                   style={{
                     display: "flex",
                     flexDirection: "column",
@@ -1015,9 +1336,27 @@ function Profile() {
                     background: "#f8fafc",
                     border: "1.5px solid #e2e8f0",
                     borderRadius: "16px",
-                    textDecoration: "none",
+                    position: "relative",
                   }}
                 >
+                  {user?.linkedin && (
+                    <button
+                      onClick={() => handleClearSocialLink("linkedin")}
+                      style={{
+                        position: "absolute",
+                        top: "8px",
+                        right: "8px",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "#ef4444",
+                        fontSize: "0.75rem",
+                      }}
+                      title="Disconnect LinkedIn"
+                    >
+                      ✕
+                    </button>
+                  )}
                   <div
                     style={{
                       width: "48px",
@@ -1038,30 +1377,43 @@ function Profile() {
                   <span style={{ fontWeight: "700", color: "#0f172a", fontSize: "0.85rem" }}>
                     LinkedIn
                   </span>
-                  <span
-                    style={{
-                      fontSize: "0.74rem",
-                      fontWeight: "600",
-                      color: user?.linkedin ? "#16a34a" : "#6366f1",
-                      marginTop: "4px",
-                    }}
-                  >
-                    {user?.linkedin ? "Connected ✅" : "Connect Now"}
-                  </span>
-                </a>
+                  {user?.linkedin ? (
+                    <a
+                      href={linkHref(user.linkedin)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        fontSize: "0.74rem",
+                        fontWeight: "600",
+                        color: "#16a34a",
+                        marginTop: "4px",
+                        textDecoration: "none",
+                      }}
+                    >
+                      Connected 🔗
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowEditModal(true)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        fontSize: "0.74rem",
+                        fontWeight: "600",
+                        color: "#6366f1",
+                        marginTop: "4px",
+                        cursor: "pointer",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      Connect Now
+                    </button>
+                  )}
+                </div>
 
                 {/* Portfolio */}
-                <a
-                  href={user?.portfolio ? linkHref(user.portfolio) : "#"}
-                  target={user?.portfolio ? "_blank" : "_self"}
-                  rel="noopener noreferrer"
-                  onClick={(e) => {
-                    if (!user?.portfolio) {
-                      e.preventDefault();
-                      setActiveTab("social");
-                      setShowEditModal(true);
-                    }
-                  }}
+                <div
                   style={{
                     display: "flex",
                     flexDirection: "column",
@@ -1070,9 +1422,27 @@ function Profile() {
                     background: "#f8fafc",
                     border: "1.5px solid #e2e8f0",
                     borderRadius: "16px",
-                    textDecoration: "none",
+                    position: "relative",
                   }}
                 >
+                  {user?.portfolio && (
+                    <button
+                      onClick={() => handleClearSocialLink("portfolio")}
+                      style={{
+                        position: "absolute",
+                        top: "8px",
+                        right: "8px",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "#ef4444",
+                        fontSize: "0.75rem",
+                      }}
+                      title="Disconnect Portfolio"
+                    >
+                      ✕
+                    </button>
+                  )}
                   <div
                     style={{
                       width: "48px",
@@ -1092,23 +1462,46 @@ function Profile() {
                   <span style={{ fontWeight: "700", color: "#0f172a", fontSize: "0.85rem" }}>
                     Portfolio
                   </span>
-                  <span
-                    style={{
-                      fontSize: "0.74rem",
-                      fontWeight: "600",
-                      color: user?.portfolio ? "#16a34a" : "#6366f1",
-                      marginTop: "4px",
-                    }}
-                  >
-                    {user?.portfolio ? "Connected ✅" : "Connect Now"}
-                  </span>
-                </a>
+                  {user?.portfolio ? (
+                    <a
+                      href={linkHref(user.portfolio)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        fontSize: "0.74rem",
+                        fontWeight: "600",
+                        color: "#16a34a",
+                        marginTop: "4px",
+                        textDecoration: "none",
+                      }}
+                    >
+                      Connected 🔗
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowEditModal(true)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        fontSize: "0.74rem",
+                        fontWeight: "600",
+                        color: "#6366f1",
+                        marginTop: "4px",
+                        cursor: "pointer",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      Connect Now
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
           {/* ═══════════════════════════════════════════════════════════════════
-              RIGHT COLUMN — Sidebar Cards (Matches Screenshot Exactly)
+              RIGHT COLUMN — Sidebar Cards (100% Real, Editable, Deletable)
              ═══════════════════════════════════════════════════════════════════ */}
           <div
             style={{
@@ -1117,7 +1510,7 @@ function Profile() {
               gap: "24px",
             }}
           >
-            {/* Card 1: Links & Social + GitHub Contribution Activity */}
+            {/* Card 1: Links & Real GitHub Contribution Activity */}
             <div
               style={{
                 background: "#ffffff",
@@ -1131,195 +1524,132 @@ function Profile() {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: "8px",
+                  justifyContent: "space-between",
                   marginBottom: "16px",
                 }}
               >
-                <span style={{ fontSize: "1.1rem" }}>🌐</span>
-                <h3
-                  style={{
-                    margin: 0,
-                    fontSize: "1.05rem",
-                    fontWeight: "700",
-                    color: "#1e293b",
-                  }}
-                >
-                  Links &amp; Social
-                </h3>
-              </div>
-
-              {/* Connected Icons row */}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr 1fr",
-                  gap: "10px",
-                  marginBottom: "20px",
-                }}
-              >
-                <div style={{ textAlign: "center" }}>
-                  <div
-                    style={{
-                      width: "44px",
-                      height: "44px",
-                      borderRadius: "12px",
-                      background: "#0f172a",
-                      color: "white",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      margin: "0 auto 6px",
-                      fontSize: "20px",
-                    }}
-                  >
-                    🐙
-                  </div>
-                  <div style={{ fontSize: "0.75rem", fontWeight: "700" }}>GitHub</div>
-                  <div
-                    style={{
-                      fontSize: "0.68rem",
-                      color: user?.github ? "#16a34a" : "#94a3b8",
-                      fontWeight: "600",
-                    }}
-                  >
-                    {user?.github ? "Connected ●" : "Connect"}
-                  </div>
-                </div>
-
-                <div style={{ textAlign: "center" }}>
-                  <div
-                    style={{
-                      width: "44px",
-                      height: "44px",
-                      borderRadius: "12px",
-                      background: "#0a66c2",
-                      color: "white",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      margin: "0 auto 6px",
-                      fontSize: "20px",
-                      fontWeight: "bold",
-                    }}
-                  >
-                    in
-                  </div>
-                  <div style={{ fontSize: "0.75rem", fontWeight: "700" }}>LinkedIn</div>
-                  <div
-                    style={{
-                      fontSize: "0.68rem",
-                      color: user?.linkedin ? "#16a34a" : "#94a3b8",
-                      fontWeight: "600",
-                    }}
-                  >
-                    {user?.linkedin ? "Connected ●" : "Connect"}
-                  </div>
-                </div>
-
-                <div style={{ textAlign: "center" }}>
-                  <div
-                    style={{
-                      width: "44px",
-                      height: "44px",
-                      borderRadius: "12px",
-                      background: "#10b981",
-                      color: "white",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      margin: "0 auto 6px",
-                      fontSize: "20px",
-                    }}
-                  >
-                    📄
-                  </div>
-                  <div style={{ fontSize: "0.75rem", fontWeight: "700" }}>Portfolio</div>
-                  <div
-                    style={{
-                      fontSize: "0.68rem",
-                      color: user?.portfolio ? "#16a34a" : "#94a3b8",
-                      fontWeight: "600",
-                    }}
-                  >
-                    {user?.portfolio ? "Connected ●" : "Connect"}
-                  </div>
-                </div>
-              </div>
-
-              {/* GitHub Contribution Graph Heading */}
-              <div
-                style={{
-                  borderTop: "1px solid #f1f5f9",
-                  paddingTop: "16px",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: "8px",
-                  }}
-                >
-                  <h4
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "1.1rem" }}>🐙</span>
+                  <h3
                     style={{
                       margin: 0,
-                      fontSize: "0.85rem",
+                      fontSize: "1.05rem",
                       fontWeight: "700",
-                      color: "#334155",
+                      color: "#1e293b",
                     }}
                   >
-                    GitHub Contribution Graph
-                  </h4>
-                  {githubUsername && (
-                    <span style={{ fontSize: "0.7rem", color: "#64748b" }}>
-                      @{githubUsername}
-                    </span>
-                  )}
+                    GitHub Contributions
+                  </h3>
                 </div>
+                {githubUsername && (
+                  <span style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: "600" }}>
+                    @{githubUsername}
+                  </span>
+                )}
+              </div>
 
-                {githubUsername ? (
+              {githubUsername ? (
+                <div>
                   <div
                     style={{
                       background: "#ffffff",
-                      borderRadius: "8px",
-                      padding: "8px",
+                      borderRadius: "12px",
+                      padding: "12px",
                       border: "1px solid #e2e8f0",
                       overflowX: "auto",
                       textAlign: "center",
                     }}
                   >
+                    {/* Real GitHub Contribution Chart Image via ghchart */}
                     <img
                       src={`https://ghchart.rshah.org/216e39/${githubUsername}`}
-                      alt={`${githubUsername}'s github contributions`}
+                      alt={`${githubUsername}'s real github contributions`}
                       style={{
                         width: "100%",
-                        minWidth: "220px",
+                        minWidth: "260px",
                         height: "auto",
                         display: "block",
                         margin: "0 auto",
                       }}
+                      onError={(e) => {
+                        e.target.style.display = "none";
+                        e.target.nextSibling.style.display = "block";
+                      }}
                     />
+                    <div style={{ display: "none", padding: "16px", color: "#64748b", fontSize: "0.85rem" }}>
+                      GitHub activity loaded for <strong>@{githubUsername}</strong>.
+                    </div>
                   </div>
-                ) : (
                   <div
                     style={{
-                      background: "#f8fafc",
-                      border: "1px dashed #cbd5e1",
-                      borderRadius: "8px",
-                      padding: "16px",
-                      textAlign: "center",
-                      fontSize: "0.8rem",
-                      color: "#64748b",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginTop: "10px",
                     }}
                   >
-                    Connect your GitHub in Edit Profile to view your live contributions.
+                    <a
+                      href={`https://github.com/${githubUsername}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        fontSize: "0.78rem",
+                        color: "#6366f1",
+                        fontWeight: "600",
+                        textDecoration: "none",
+                      }}
+                    >
+                      View GitHub Profile ↗
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleClearSocialLink("github")}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#ef4444",
+                        fontSize: "0.75rem",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Disconnect
+                    </button>
                   </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    background: "#f8fafc",
+                    border: "1px dashed #cbd5e1",
+                    borderRadius: "12px",
+                    padding: "20px",
+                    textAlign: "center",
+                  }}
+                >
+                  <p style={{ margin: "0 0 10px", fontSize: "0.85rem", color: "#64748b" }}>
+                    No GitHub connected yet. Link your GitHub username or URL to view your live contributions graph.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowEditModal(true)}
+                    style={{
+                      background: "#0f172a",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "9999px",
+                      padding: "6px 14px",
+                      fontSize: "0.78rem",
+                      fontWeight: "600",
+                      cursor: "pointer",
+                    }}
+                  >
+                    + Connect GitHub
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* Card 2: Top Projects (Clean UI + Add New Project Button) */}
+            {/* Card 2: Top Projects (Real Projects with View, Edit & Delete) */}
             <div
               style={{
                 background: "#ffffff",
@@ -1333,24 +1663,26 @@ function Profile() {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: "8px",
+                  justifyContent: "space-between",
                   marginBottom: "16px",
                 }}
               >
-                <span style={{ fontSize: "1.1rem" }}>💼</span>
-                <h3
-                  style={{
-                    margin: 0,
-                    fontSize: "1.05rem",
-                    fontWeight: "700",
-                    color: "#1e293b",
-                  }}
-                >
-                  Top Projects
-                </h3>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "1.1rem" }}>💼</span>
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: "1.05rem",
+                      fontWeight: "700",
+                      color: "#1e293b",
+                    }}
+                  >
+                    My Projects ({projects.length})
+                  </h3>
+                </div>
               </div>
 
-              {/* Projects List */}
+              {/* Real Projects List */}
               <div
                 style={{
                   display: "flex",
@@ -1360,7 +1692,7 @@ function Profile() {
                 }}
               >
                 {projects.length > 0 ? (
-                  projects.slice(0, 2).map((proj) => (
+                  projects.map((proj) => (
                     <div
                       key={proj._id}
                       style={{
@@ -1368,21 +1700,54 @@ function Profile() {
                         border: "1px solid #e2e8f0",
                         borderRadius: "14px",
                         padding: "14px",
+                        position: "relative",
                       }}
                     >
-                      <Link
-                        to={`/projects/${proj._id}`}
+                      <div
                         style={{
-                          textDecoration: "none",
-                          fontSize: "0.95rem",
-                          fontWeight: "700",
-                          color: "#1e293b",
-                          display: "block",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          gap: "8px",
                           marginBottom: "4px",
                         }}
                       >
-                        {proj.title}
-                      </Link>
+                        <Link
+                          to={`/projects/${proj._id}`}
+                          style={{
+                            textDecoration: "none",
+                            fontSize: "0.95rem",
+                            fontWeight: "700",
+                            color: "#1e293b",
+                          }}
+                        >
+                          {proj.title}
+                        </Link>
+                        {/* Status Badge */}
+                        <span
+                          style={{
+                            fontSize: "0.7rem",
+                            fontWeight: "700",
+                            padding: "2px 8px",
+                            borderRadius: "6px",
+                            background:
+                              proj.status === "Completed"
+                                ? "#dcfce7"
+                                : proj.status === "In Progress"
+                                ? "#dbeafe"
+                                : "#fef3c7",
+                            color:
+                              proj.status === "Completed"
+                                ? "#15803d"
+                                : proj.status === "In Progress"
+                                ? "#1d4ed8"
+                                : "#b45309",
+                          }}
+                        >
+                          {proj.status || "In Progress"}
+                        </span>
+                      </div>
+
                       <p
                         style={{
                           fontSize: "0.8rem",
@@ -1397,22 +1762,70 @@ function Profile() {
                       >
                         {proj.description}
                       </p>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                        {(proj.technologies || []).slice(0, 3).map((tag, idx) => (
-                          <span
-                            key={idx}
+
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: "6px",
+                        }}
+                      >
+                        {/* Technologies Tags */}
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                          {(proj.technologies || []).slice(0, 3).map((tag, idx) => (
+                            <span
+                              key={idx}
+                              style={{
+                                background: "#e0e7ff",
+                                color: "#4338ca",
+                                fontSize: "0.68rem",
+                                fontWeight: "600",
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                              }}
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+
+                        {/* Real Edit & Delete Action Buttons */}
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/projects/${proj._id}/edit`)}
                             style={{
-                              background: "#e0e7ff",
-                              color: "#4338ca",
-                              fontSize: "0.7rem",
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              fontSize: "0.78rem",
+                              color: "#6366f1",
                               fontWeight: "600",
-                              padding: "2px 8px",
-                              borderRadius: "6px",
+                              padding: 0,
                             }}
+                            title="Edit Project"
                           >
-                            {tag}
-                          </span>
-                        ))}
+                            ✏️ Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowDeleteProjectModal(proj._id)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              fontSize: "0.78rem",
+                              color: "#ef4444",
+                              fontWeight: "600",
+                              padding: 0,
+                            }}
+                            title="Delete Project"
+                          >
+                            🗑️ Delete
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))
@@ -1422,13 +1835,14 @@ function Profile() {
                       background: "#f8fafc",
                       border: "1px dashed #cbd5e1",
                       borderRadius: "12px",
-                      padding: "20px",
+                      padding: "24px 16px",
                       textAlign: "center",
                       color: "#64748b",
-                      fontSize: "0.85rem",
                     }}
                   >
-                    No projects yet. Click below to add your first project!
+                    <p style={{ margin: "0 0 10px", fontSize: "0.85rem" }}>
+                      You haven't created any projects yet.
+                    </p>
                   </div>
                 )}
               </div>
@@ -1460,7 +1874,7 @@ function Profile() {
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          THE ONE MAIN EDIT MODAL (All editing happens here)
+          MODAL 1: FULL PROFILE EDIT (Name, Title, Bio, Education, Socials)
          ═══════════════════════════════════════════════════════════════════════ */}
       {showEditModal && (
         <div
@@ -1482,16 +1896,15 @@ function Profile() {
           <div
             style={{
               background: "#ffffff",
-              borderRadius: "24px",
+              borderRadius: "20px",
               width: "100%",
-              maxWidth: "680px",
+              maxWidth: "640px",
               maxHeight: "90vh",
               overflowY: "auto",
               padding: "28px",
-              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+              boxShadow: "0 20px 40px rgba(0, 0, 0, 0.2)",
             }}
           >
-            {/* Modal Header */}
             <div
               style={{
                 display: "flex",
@@ -1501,7 +1914,7 @@ function Profile() {
               }}
             >
               <h2 style={{ margin: 0, fontSize: "1.4rem", fontWeight: "800", color: "#0f172a" }}>
-                Edit Profile
+                Edit Profile Details
               </h2>
               <button
                 onClick={() => setShowEditModal(false)}
@@ -1517,351 +1930,199 @@ function Profile() {
               </button>
             </div>
 
-            {/* Modal Navigation Tabs */}
-            <div
-              style={{
-                display: "flex",
-                gap: "8px",
-                borderBottom: "1px solid #e2e8f0",
-                paddingBottom: "12px",
-                marginBottom: "20px",
-                overflowX: "auto",
-              }}
-            >
-              {[
-                { id: "general", label: "Basic Info" },
-                { id: "skills", label: `Skills (${formData.skills.length})` },
-                { id: "certs", label: `Certifications (${formData.certifications.length})` },
-                { id: "social", label: "Social Links" },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveTab(tab.id)}
-                  style={{
-                    padding: "8px 16px",
-                    borderRadius: "9999px",
-                    border: "none",
-                    background: activeTab === tab.id ? "#3730a3" : "#f1f5f9",
-                    color: activeTab === tab.id ? "#ffffff" : "#475569",
-                    fontSize: "0.85rem",
-                    fontWeight: "700",
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
             <form onSubmit={handleUpdate}>
-              {/* TAB 1: BASIC INFO */}
-              {activeTab === "general" && (
-                <div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "14px",
-                      marginBottom: "14px",
-                    }}
-                  >
-                    <div>
-                      <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
-                        Full Name *
-                      </label>
-                      <input
-                        className="form-input"
-                        type="text"
-                        name="name"
-                        value={formData.name}
-                        onChange={handleChange}
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
-                        Professional Title/Role
-                      </label>
-                      <input
-                        className="form-input"
-                        type="text"
-                        name="title"
-                        value={formData.title}
-                        onChange={handleChange}
-                        placeholder="e.g. Full-stack Web Developer"
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ marginBottom: "14px" }}>
-                    <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
-                      Personal Bio
-                    </label>
-                    <textarea
-                      className="form-textarea"
-                      name="bio"
-                      rows="3"
-                      value={formData.bio}
-                      onChange={handleChange}
-                      placeholder="Tell others about your experience and projects..."
-                    />
-                  </div>
-
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "2fr 1fr",
-                      gap: "14px",
-                      marginBottom: "14px",
-                    }}
-                  >
-                    <div>
-                      <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
-                        Education Degree
-                      </label>
-                      <input
-                        className="form-input"
-                        type="text"
-                        name="education"
-                        value={formData.education}
-                        onChange={handleChange}
-                        placeholder="e.g. Bachelor of Science in Computer Science"
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
-                        Years
-                      </label>
-                      <input
-                        className="form-input"
-                        type="text"
-                        name="educationYears"
-                        value={formData.educationYears}
-                        onChange={handleChange}
-                        placeholder="2019 - 2023"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 2: SKILLS (Add & Delete) */}
-              {activeTab === "skills" && (
-                <div>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "10px",
-                      alignItems: "center",
-                      marginBottom: "16px",
-                    }}
-                  >
-                    <input
-                      className="form-input"
-                      type="text"
-                      placeholder="Skill name (e.g. Docker, TypeScript)"
-                      value={newSkillName}
-                      onChange={(e) => setNewSkillName(e.target.value)}
-                      style={{ flex: 2 }}
-                    />
-                    <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "6px" }}>
-                      <input
-                        type="range"
-                        min="20"
-                        max="100"
-                        step="5"
-                        value={newSkillPercent}
-                        onChange={(e) => setNewSkillPercent(Number(e.target.value))}
-                        style={{ width: "100%", accentColor: "#f97316" }}
-                      />
-                      <span style={{ fontSize: "0.8rem", fontWeight: "700", width: "40px" }}>
-                        {newSkillPercent}%
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={handleAddSkillInModal}
-                      disabled={!newSkillName.trim()}
-                    >
-                      + Add
-                    </button>
-                  </div>
-
-                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "8px" }}>
-                    Current Skills (Click ✕ to remove):
-                  </label>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", minHeight: "60px" }}>
-                    {formData.skills.map((skill, idx) => (
-                      <span
-                        key={idx}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "8px",
-                          background: "#f1f5f9",
-                          padding: "6px 12px",
-                          borderRadius: "9999px",
-                          fontSize: "0.85rem",
-                          fontWeight: "600",
-                          border: "1px solid #e2e8f0",
-                        }}
-                      >
-                        {skill}
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveSkillInModal(idx)}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            cursor: "pointer",
-                            color: "#ef4444",
-                            fontWeight: "bold",
-                            padding: 0,
-                          }}
-                          title="Remove"
-                        >
-                          ✕
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 3: CERTIFICATIONS (Add & Delete) */}
-              {activeTab === "certs" && (
-                <div>
-                  <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "12px", marginBottom: "16px" }}>
-                    <div style={{ fontSize: "0.85rem", fontWeight: "700", marginBottom: "8px" }}>
-                      Add New Certification
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: "8px" }}>
-                      <input
-                        className="form-input"
-                        placeholder="Cert name (e.g. AWS Practitioner)"
-                        value={newCert.name}
-                        onChange={(e) => setNewCert({ ...newCert, name: e.target.value })}
-                      />
-                      <input
-                        className="form-input"
-                        placeholder="Date (e.g. 2023-09)"
-                        value={newCert.completed}
-                        onChange={(e) => setNewCert({ ...newCert, completed: e.target.value })}
-                      />
-                      <input
-                        className="form-input"
-                        placeholder="Issuer (e.g. AWS)"
-                        value={newCert.issuer}
-                        onChange={(e) => setNewCert({ ...newCert, issuer: e.target.value })}
-                      />
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={handleAddCertInModal}
-                        disabled={!newCert.name.trim()}
-                      >
-                        + Add
-                      </button>
-                    </div>
-                  </div>
-
-                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "8px" }}>
-                    Added Certifications:
-                  </label>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                    {formData.certifications.map((c, idx) => (
-                      <div
-                        key={idx}
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          padding: "8px 12px",
-                          background: "#f1f5f9",
-                          borderRadius: "8px",
-                          fontSize: "0.85rem",
-                        }}
-                      >
-                        <span>
-                          <strong>{c.name}</strong> · {c.completed || "Verified"} ({c.issuer || "Official"})
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveCertInModal(idx)}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            color: "#ef4444",
-                            cursor: "pointer",
-                            fontWeight: "bold",
-                          }}
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 4: SOCIAL LINKS */}
-              {activeTab === "social" && (
-                <div>
-                  <div style={{ marginBottom: "12px" }}>
-                    <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
-                      GitHub (username or URL)
-                    </label>
-                    <input
-                      className="form-input"
-                      name="github"
-                      value={formData.github}
-                      onChange={handleChange}
-                      placeholder="github.com/username"
-                    />
-                  </div>
-
-                  <div style={{ marginBottom: "12px" }}>
-                    <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
-                      LinkedIn URL
-                    </label>
-                    <input
-                      className="form-input"
-                      name="linkedin"
-                      value={formData.linkedin}
-                      onChange={handleChange}
-                      placeholder="linkedin.com/in/username"
-                    />
-                  </div>
-
-                  <div style={{ marginBottom: "14px" }}>
-                    <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
-                      Portfolio Website URL
-                    </label>
-                    <input
-                      className="form-input"
-                      name="portfolio"
-                      value={formData.portfolio}
-                      onChange={handleChange}
-                      placeholder="https://yourportfolio.com"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Modal Footer Actions */}
               <div
                 style={{
-                  display: "flex",
-                  gap: "12px",
-                  justifyContent: "flex-end",
-                  marginTop: "24px",
-                  borderTop: "1px solid #e2e8f0",
-                  paddingTop: "16px",
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "14px",
+                  marginBottom: "14px",
                 }}
               >
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "0.85rem",
+                      fontWeight: "700",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Full Name *
+                  </label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleChange}
+                    required
+                  />
+                </div>
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "0.85rem",
+                      fontWeight: "700",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Professional Title/Role
+                  </label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    name="title"
+                    value={formData.title}
+                    onChange={handleChange}
+                    placeholder="e.g. Full-stack Web Developer"
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: "14px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "0.85rem",
+                    fontWeight: "700",
+                    marginBottom: "4px",
+                  }}
+                >
+                  Personal Bio
+                </label>
+                <textarea
+                  className="form-textarea"
+                  name="bio"
+                  rows="3"
+                  value={formData.bio}
+                  onChange={handleChange}
+                  placeholder="Tell others about your experience, interests, and what you're working on..."
+                />
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "2fr 1fr",
+                  gap: "14px",
+                  marginBottom: "14px",
+                }}
+              >
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "0.85rem",
+                      fontWeight: "700",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Education Degree / Field
+                  </label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    name="education"
+                    value={formData.education}
+                    onChange={handleChange}
+                    placeholder="e.g. Bachelor of Science in Computer Science"
+                  />
+                </div>
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "0.85rem",
+                      fontWeight: "700",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Years / Duration
+                  </label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    name="educationYears"
+                    value={formData.educationYears}
+                    onChange={handleChange}
+                    placeholder="e.g. 2019 - 2023"
+                  />
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr 1fr",
+                  gap: "12px",
+                  marginBottom: "20px",
+                }}
+              >
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "0.8rem",
+                      fontWeight: "700",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    GitHub (username or URL)
+                  </label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    name="github"
+                    value={formData.github}
+                    onChange={handleChange}
+                    placeholder="github.com/username"
+                  />
+                </div>
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "0.8rem",
+                      fontWeight: "700",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    LinkedIn URL
+                  </label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    name="linkedin"
+                    value={formData.linkedin}
+                    onChange={handleChange}
+                    placeholder="linkedin.com/in/username"
+                  />
+                </div>
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "0.8rem",
+                      fontWeight: "700",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Portfolio URL
+                  </label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    name="portfolio"
+                    value={formData.portfolio}
+                    onChange={handleChange}
+                    placeholder="myportfolio.com"
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
                 <button
                   type="button"
                   className="btn btn-secondary"
@@ -1879,9 +2140,231 @@ function Profile() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          MINI MODAL: QUICK ADD SKILL
+          MODAL 2: ADD / EDIT SKILL (Real CRUD)
          ═══════════════════════════════════════════════════════════════════════ */}
       {showAddSkillModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.6)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 999,
+            padding: "20px",
+          }}
+        >
+          <div
+            style={{
+              background: "#ffffff",
+              borderRadius: "20px",
+              width: "100%",
+              maxWidth: "420px",
+              padding: "24px",
+              boxShadow: "0 20px 40px rgba(0, 0, 0, 0.2)",
+            }}
+          >
+            <h3 style={{ margin: "0 0 16px", fontSize: "1.2rem", fontWeight: "800" }}>
+              {editingSkillIndex !== null ? "Edit Skill" : "Add a New Skill"}
+            </h3>
+            <div style={{ marginBottom: "14px" }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.85rem",
+                  fontWeight: "700",
+                  marginBottom: "4px",
+                }}
+              >
+                Skill Name *
+              </label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="e.g. React, Node.js, Python, Docker"
+                value={skillInputName}
+                onChange={(e) => setSkillInputName(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div style={{ marginBottom: "20px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginBottom: "4px",
+                }}
+              >
+                <label style={{ fontSize: "0.85rem", fontWeight: "700" }}>
+                  Proficiency Level
+                </label>
+                <span style={{ fontWeight: "700", color: "#f97316" }}>
+                  {skillInputPercent}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min="10"
+                max="100"
+                step="5"
+                value={skillInputPercent}
+                onChange={(e) => setSkillInputPercent(Number(e.target.value))}
+                style={{ width: "100%", accentColor: "#f97316" }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setShowAddSkillModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleSaveSkill}
+                disabled={!skillInputName.trim()}
+              >
+                {editingSkillIndex !== null ? "Update Skill" : "Save Skill"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          MODAL 3: ADD / EDIT CERTIFICATION (Real CRUD)
+         ═══════════════════════════════════════════════════════════════════════ */}
+      {showAddCertModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.6)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 999,
+            padding: "20px",
+          }}
+        >
+          <div
+            style={{
+              background: "#ffffff",
+              borderRadius: "20px",
+              width: "100%",
+              maxWidth: "460px",
+              padding: "24px",
+              boxShadow: "0 20px 40px rgba(0, 0, 0, 0.2)",
+            }}
+          >
+            <h3 style={{ margin: "0 0 16px", fontSize: "1.2rem", fontWeight: "800" }}>
+              {editingCertIndex !== null ? "Edit Certification" : "Add Certification"}
+            </h3>
+
+            <div style={{ marginBottom: "14px" }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.85rem",
+                  fontWeight: "700",
+                  marginBottom: "4px",
+                }}
+              >
+                Certification Name *
+              </label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="e.g. AWS Certified Cloud Practitioner"
+                value={certFormData.name}
+                onChange={(e) =>
+                  setCertFormData({ ...certFormData, name: e.target.value })
+                }
+                autoFocus
+                required
+              />
+            </div>
+
+            <div style={{ marginBottom: "14px" }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.85rem",
+                  fontWeight: "700",
+                  marginBottom: "4px",
+                }}
+              >
+                Completed Date / Year
+              </label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="e.g. 2023-09-15 or Sep 2023"
+                value={certFormData.completed}
+                onChange={(e) =>
+                  setCertFormData({ ...certFormData, completed: e.target.value })
+                }
+              />
+            </div>
+
+            <div style={{ marginBottom: "20px" }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.85rem",
+                  fontWeight: "700",
+                  marginBottom: "4px",
+                }}
+              >
+                Issuing Organization / Authority
+              </label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="e.g. AWS, Google, Meta, Microsoft, Coursera"
+                value={certFormData.issuer}
+                onChange={(e) =>
+                  setCertFormData({ ...certFormData, issuer: e.target.value })
+                }
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setShowAddCertModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleSaveCertification}
+                disabled={!certFormData.name.trim()}
+              >
+                {editingCertIndex !== null ? "Update" : "Save Certification"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          MODAL 4: CONFIRM DELETE PROJECT
+         ═══════════════════════════════════════════════════════════════════════ */}
+      {showDeleteProjectModal && (
         <div
           style={{
             position: "fixed",
@@ -1906,54 +2389,31 @@ function Profile() {
               maxWidth: "400px",
               padding: "24px",
               boxShadow: "0 20px 40px rgba(0, 0, 0, 0.2)",
+              textAlign: "center",
             }}
           >
-            <h3 style={{ margin: "0 0 16px", fontSize: "1.2rem", fontWeight: "800" }}>
-              Add a Skill
+            <div style={{ fontSize: "2.5rem", marginBottom: "10px" }}>🗑️</div>
+            <h3 style={{ margin: "0 0 8px", fontSize: "1.2rem", fontWeight: "800" }}>
+              Delete this project?
             </h3>
-            <div style={{ marginBottom: "14px" }}>
-              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "700", marginBottom: "4px" }}>
-                Skill Name *
-              </label>
-              <input
-                className="form-input"
-                type="text"
-                placeholder="e.g. React, Node.js, Python"
-                value={newSkillName}
-                onChange={(e) => setNewSkillName(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div style={{ marginBottom: "20px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                <label style={{ fontSize: "0.85rem", fontWeight: "700" }}>Proficiency</label>
-                <span style={{ fontWeight: "700", color: "#f97316" }}>{newSkillPercent}%</span>
-              </div>
-              <input
-                type="range"
-                min="20"
-                max="100"
-                step="5"
-                value={newSkillPercent}
-                onChange={(e) => setNewSkillPercent(Number(e.target.value))}
-                style={{ width: "100%", accentColor: "#f97316" }}
-              />
-            </div>
-            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+            <p style={{ fontSize: "0.85rem", color: "#64748b", margin: "0 0 20px" }}>
+              This action cannot be undone. All project data and comments will be permanently removed.
+            </p>
+            <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setShowAddSkillModal(false)}
+                className="btn btn-secondary"
+                onClick={() => setShowDeleteProjectModal(null)}
               >
                 Cancel
               </button>
               <button
                 type="button"
-                className="btn btn-primary btn-sm"
-                onClick={handleQuickAddSkill}
-                disabled={!newSkillName.trim()}
+                className="btn btn-danger"
+                disabled={deletingProjectId !== null}
+                onClick={() => handleDeleteProject(showDeleteProjectModal)}
               >
-                Add Skill
+                {deletingProjectId ? "Deleting..." : "Yes, Delete Project"}
               </button>
             </div>
           </div>
