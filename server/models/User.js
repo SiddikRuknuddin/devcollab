@@ -68,6 +68,20 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
 
+    title: {
+      type: String,
+      default: "Full-stack Web Developer",
+      trim: true,
+    },
+
+    certifications: [
+      {
+        name: { type: String, trim: true },
+        completed: { type: String, trim: true },
+        issuer: { type: String, trim: true },
+      },
+    ],
+
     education: {
       type: String,
       default: "",

@@ -30,6 +30,8 @@ const updateProfile = async (req, res) => {
       location,
       experience,
       education,
+      title,
+      certifications,
     } = req.body;
 
     const user = await User.findById(req.user.id);
@@ -40,6 +42,10 @@ const updateProfile = async (req, res) => {
 
     if (name !== undefined) user.name = name.trim();
     if (bio !== undefined) user.bio = bio.trim();
+    if (title !== undefined) user.title = title.trim();
+    if (certifications !== undefined && Array.isArray(certifications)) {
+      user.certifications = certifications;
+    }
 
     if (skills !== undefined) {
       if (Array.isArray(skills)) {
