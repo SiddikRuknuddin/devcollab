@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import axios from "axios";
+import { useNavigate, useParams, Link } from "react-router-dom";
+import api from "../services/api";
 import { useAuth } from "../context/AuthContext";
 
 function EditProject() {
@@ -23,18 +23,8 @@ function EditProject() {
   useEffect(() => {
     const fetchProject = async () => {
       try {
-        const response = await axios.get(
-          `http://localhost:5000/api/projects/my`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-        const project = response.data.projects.find(
-          (project) => project._id === id
-        );
+        const response = await api.get(`/api/projects/${id}`);
+        const project = response.data.project;
 
         if (!project) {
           setError("Project not found");
@@ -44,18 +34,15 @@ function EditProject() {
         setFormData({
           title: project.title || "",
           description: project.description || "",
-          technologies:
-            project.technologies?.join(", ") || "",
+          technologies: project.technologies?.join(", ") || "",
           githubUrl: project.githubUrl || "",
           status: project.status || "Planning",
         });
-      } catch (error) {
-        console.error(
-          "Fetch Project Error:",
-          error.response?.data || error.message
+      } catch (err) {
+        console.error("Fetch Project Error:", err.response?.data || err.message);
+        setError(
+          err.response?.data?.message || "Unable to load project details"
         );
-
-        setError("Unable to load project");
       } finally {
         setLoading(false);
       }
@@ -76,6 +63,11 @@ function EditProject() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (!formData.title.trim() || !formData.description.trim()) {
+      setError("Title and description are required");
+      return;
+    }
+
     setSaving(true);
     setError("");
 
@@ -85,34 +77,19 @@ function EditProject() {
         .map((tech) => tech.trim())
         .filter((tech) => tech !== "");
 
-      await axios.put(
-        `http://localhost:5000/api/projects/${id}`,
-        {
-          title: formData.title,
-          description: formData.description,
-          technologies: technologiesArray,
-          githubUrl: formData.githubUrl,
-          status: formData.status,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      alert("Project updated successfully!");
+      await api.put(`/api/projects/${id}`, {
+        title: formData.title.trim(),
+        description: formData.description.trim(),
+        technologies: technologiesArray,
+        githubUrl: formData.githubUrl.trim(),
+        status: formData.status,
+      });
 
       navigate("/projects");
-    } catch (error) {
-      console.error(
-        "Update Project Error:",
-        error.response?.data || error.message
-      );
-
+    } catch (err) {
+      console.error("Update Project Error:", err.response?.data || err.message);
       setError(
-        error.response?.data?.message ||
-          "Failed to update project"
+        err.response?.data?.message || "Failed to update project. Please try again."
       );
     } finally {
       setSaving(false);
@@ -120,83 +97,259 @@ function EditProject() {
   };
 
   if (loading) {
-    return <p>Loading project...</p>;
-  }
-
-  if (error) {
-    return <p>{error}</p>;
+    return (
+      <div style={{ maxWidth: "600px", margin: "2rem auto", padding: "0 1rem" }}>
+        <p>Loading project details...</p>
+      </div>
+    );
   }
 
   return (
-    <div className="edit-project-page">
-      <h1>Edit Project</h1>
+    <div
+      style={{
+        maxWidth: "600px",
+        margin: "2rem auto",
+        padding: "2rem",
+        backgroundColor: "#ffffff",
+        borderRadius: "12px",
+        border: "1px solid #e5e7eb",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+        textAlign: "left",
+      }}
+    >
+      <Link
+        to="/projects"
+        style={{
+          display: "inline-block",
+          marginBottom: "1rem",
+          color: "#2563eb",
+          textDecoration: "none",
+          fontSize: "0.9rem",
+          fontWeight: 500,
+        }}
+      >
+        ← Back to Projects
+      </Link>
 
-      <p>Update your project information.</p>
+      <h1 style={{ margin: "0 0 0.25rem 0", fontSize: "1.75rem", color: "#111827" }}>
+        Edit Project ✏️
+      </h1>
+      <p style={{ margin: "0 0 1.5rem 0", color: "#6b7280", fontSize: "0.95rem" }}>
+        Update your project information and tech stack.
+      </p>
 
-      {error && <p>{error}</p>}
+      {error && (
+        <div
+          style={{
+            padding: "0.75rem 1rem",
+            backgroundColor: "#fef2f2",
+            border: "1px solid #fee2e2",
+            borderRadius: "6px",
+            color: "#ef4444",
+            fontSize: "0.9rem",
+            marginBottom: "1.25rem",
+          }}
+        >
+          {error}
+        </div>
+      )}
 
       <form onSubmit={handleSubmit}>
-        <label>Project Title</label>
+        <div style={{ marginBottom: "1.25rem" }}>
+          <label
+            htmlFor="edit-proj-title"
+            style={{
+              display: "block",
+              fontSize: "0.9rem",
+              fontWeight: 600,
+              color: "#374151",
+              marginBottom: "0.4rem",
+            }}
+          >
+            Project Title *
+          </label>
+          <input
+            id="edit-proj-title"
+            type="text"
+            name="title"
+            value={formData.title}
+            onChange={handleChange}
+            required
+            style={{
+              width: "100%",
+              padding: "0.75rem 0.9rem",
+              borderRadius: "6px",
+              border: "1px solid #d1d5db",
+              fontSize: "0.95rem",
+              boxSizing: "border-box",
+            }}
+          />
+        </div>
 
-        <input
-          type="text"
-          name="title"
-          value={formData.title}
-          onChange={handleChange}
-          required
-        />
+        <div style={{ marginBottom: "1.25rem" }}>
+          <label
+            htmlFor="edit-proj-desc"
+            style={{
+              display: "block",
+              fontSize: "0.9rem",
+              fontWeight: 600,
+              color: "#374151",
+              marginBottom: "0.4rem",
+            }}
+          >
+            Description *
+          </label>
+          <textarea
+            id="edit-proj-desc"
+            name="description"
+            value={formData.description}
+            onChange={handleChange}
+            required
+            rows="4"
+            style={{
+              width: "100%",
+              padding: "0.75rem 0.9rem",
+              borderRadius: "6px",
+              border: "1px solid #d1d5db",
+              fontSize: "0.95rem",
+              boxSizing: "border-box",
+              resize: "vertical",
+            }}
+          />
+        </div>
 
-        <label>Description</label>
+        <div style={{ marginBottom: "1.25rem" }}>
+          <label
+            htmlFor="edit-proj-tech"
+            style={{
+              display: "block",
+              fontSize: "0.9rem",
+              fontWeight: 600,
+              color: "#374151",
+              marginBottom: "0.4rem",
+            }}
+          >
+            Technologies (comma-separated)
+          </label>
+          <input
+            id="edit-proj-tech"
+            type="text"
+            name="technologies"
+            value={formData.technologies}
+            onChange={handleChange}
+            placeholder="React, Node.js, MongoDB"
+            style={{
+              width: "100%",
+              padding: "0.75rem 0.9rem",
+              borderRadius: "6px",
+              border: "1px solid #d1d5db",
+              fontSize: "0.95rem",
+              boxSizing: "border-box",
+            }}
+          />
+        </div>
 
-        <textarea
-          name="description"
-          value={formData.description}
-          onChange={handleChange}
-          required
-        />
+        <div style={{ marginBottom: "1.25rem" }}>
+          <label
+            htmlFor="edit-proj-github"
+            style={{
+              display: "block",
+              fontSize: "0.9rem",
+              fontWeight: 600,
+              color: "#374151",
+              marginBottom: "0.4rem",
+            }}
+          >
+            GitHub URL
+          </label>
+          <input
+            id="edit-proj-github"
+            type="url"
+            name="githubUrl"
+            value={formData.githubUrl}
+            onChange={handleChange}
+            placeholder="https://github.com/username/project"
+            style={{
+              width: "100%",
+              padding: "0.75rem 0.9rem",
+              borderRadius: "6px",
+              border: "1px solid #d1d5db",
+              fontSize: "0.95rem",
+              boxSizing: "border-box",
+            }}
+          />
+        </div>
 
-        <label>Technologies</label>
+        <div style={{ marginBottom: "1.5rem" }}>
+          <label
+            htmlFor="edit-proj-status"
+            style={{
+              display: "block",
+              fontSize: "0.9rem",
+              fontWeight: 600,
+              color: "#374151",
+              marginBottom: "0.4rem",
+            }}
+          >
+            Project Status
+          </label>
+          <select
+            id="edit-proj-status"
+            name="status"
+            value={formData.status}
+            onChange={handleChange}
+            style={{
+              width: "100%",
+              padding: "0.75rem 0.9rem",
+              borderRadius: "6px",
+              border: "1px solid #d1d5db",
+              fontSize: "0.95rem",
+              boxSizing: "border-box",
+              backgroundColor: "#ffffff",
+            }}
+          >
+            <option value="Planning">Planning</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Completed">Completed</option>
+          </select>
+        </div>
 
-        <input
-          type="text"
-          name="technologies"
-          value={formData.technologies}
-          onChange={handleChange}
-          placeholder="React, Node.js, MongoDB"
-        />
+        <div style={{ display: "flex", gap: "0.75rem" }}>
+          <button
+            type="submit"
+            disabled={saving}
+            style={{
+              padding: "0.75rem 1.5rem",
+              backgroundColor: "#2563eb",
+              color: "white",
+              border: "none",
+              borderRadius: "6px",
+              fontWeight: 600,
+              fontSize: "0.95rem",
+              cursor: saving ? "not-allowed" : "pointer",
+              opacity: saving ? 0.7 : 1,
+            }}
+          >
+            {saving ? "Saving Changes..." : "Save Changes"}
+          </button>
 
-        <label>GitHub URL</label>
-
-        <input
-          type="url"
-          name="githubUrl"
-          value={formData.githubUrl}
-          onChange={handleChange}
-          placeholder="https://github.com/username/project"
-        />
-
-        <label>Status</label>
-
-        <select
-          name="status"
-          value={formData.status}
-          onChange={handleChange}
-        >
-          <option value="Planning">Planning</option>
-          <option value="In Progress">In Progress</option>
-          <option value="Completed">Completed</option>
-        </select>
-
-        <button type="submit" disabled={saving}>
-          {saving ? "Updating..." : "Update Project"}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => navigate("/projects")}
-        >
-          Cancel
-        </button>
+          <button
+            type="button"
+            onClick={() => navigate("/projects")}
+            style={{
+              padding: "0.75rem 1.25rem",
+              backgroundColor: "#f3f4f6",
+              color: "#374151",
+              border: "1px solid #d1d5db",
+              borderRadius: "6px",
+              fontWeight: 500,
+              fontSize: "0.95rem",
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+        </div>
       </form>
     </div>
   );

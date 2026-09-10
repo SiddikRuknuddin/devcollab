@@ -35,6 +35,61 @@ const userSchema = new mongoose.Schema(
     profileImage: {
       type: String,
       default: "",
+      trim: true,
+    },
+
+    github: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    linkedin: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    portfolio: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    location: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    experience: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    education: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    // Email verification
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+    },
+
+    emailVerificationToken: {
+      type: String,
+      default: null,
+      select: false, // Never returned in queries by default
+    },
+
+    emailVerificationExpires: {
+      type: Date,
+      default: null,
+      select: false,
     },
   },
   {
