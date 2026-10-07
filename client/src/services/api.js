@@ -10,13 +10,25 @@ const api = axios.create({
   },
 });
 
-// Request interceptor to automatically attach authorization token
+// Request interceptor to automatically attach authorization token and ensure /api prefix
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("token");
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    // Automatically prefix with /api if omitted for relative paths
+    if (
+      config.url &&
+      !config.url.startsWith("http://") &&
+      !config.url.startsWith("https://") &&
+      !config.url.startsWith("/api/") &&
+      config.url !== "/api"
+    ) {
+      config.url = `/api${config.url.startsWith("/") ? "" : "/"}${config.url}`;
+    }
+
     return config;
   },
   (error) => Promise.reject(error)

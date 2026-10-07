@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 
 const userRoutes = require("./routes/userRoutes");
 const testRoutes = require("./routes/testRoutes");
@@ -11,6 +12,9 @@ const commentRoutes = require("./routes/commentRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const protectedRoutes = require("./routes/protectedRoutes");
+const messageRoutes = require("./routes/messageRoutes");
+const taskRoutes = require("./routes/taskRoutes");
+const aiRoutes = require("./routes/aiRoutes");
 const rateLimiter = require("./middleware/rateLimiter");
 
 const app = express();
@@ -50,6 +54,7 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: "1mb" }));
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Rate limiter on sensitive auth routes
 const authLimiter = rateLimiter({
@@ -66,6 +71,9 @@ app.use("/api/discussions", discussionRoutes);
 app.use("/api/comments", commentRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/messages", messageRoutes);
+app.use("/api/tasks", taskRoutes);
+app.use("/api/ai", aiRoutes);
 
 app.get("/", (req, res) => {
   res.status(200).json({

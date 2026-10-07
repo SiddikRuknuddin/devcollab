@@ -3,9 +3,36 @@ import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../context/AuthContext";
 
+const STATUS_CONFIG = {
+  Accepted: {
+    bg: "rgba(16,185,129,0.12)", color: "#34d399",
+    border: "rgba(16,185,129,0.3)", dot: "#10b981",
+    label: "✓ Joined", icon: "✅",
+  },
+  Pending: {
+    bg: "rgba(245,158,11,0.12)", color: "#fbbf24",
+    border: "rgba(245,158,11,0.3)", dot: "#f59e0b",
+    label: "Awaiting response", icon: "⏳",
+  },
+  Rejected: {
+    bg: "rgba(239,68,68,0.12)", color: "#f87171",
+    border: "rgba(239,68,68,0.3)", dot: "#ef4444",
+    label: "Declined", icon: "✕",
+  },
+};
+
+const PageShell = ({ children }) => (
+  <div style={{
+    minHeight: "calc(100vh - 64px)",
+    background: "var(--bg)",
+    padding: "2rem 1.25rem 4rem",
+  }}>
+    <div style={{ maxWidth: "860px", margin: "0 auto" }}>{children}</div>
+  </div>
+);
+
 function Invitations() {
   const { token } = useAuth();
-
   const [invitations, setInvitations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -13,13 +40,11 @@ function Invitations() {
 
   const fetchInvitations = async () => {
     try {
+      setLoading(true);
       const response = await api.get("/api/projects/my/invitations");
       setInvitations(response.data.invitations || []);
     } catch (err) {
-      console.error(
-        "Invitations Error:",
-        err.response?.data || err.message
-      );
+      console.error("Invitations Error:", err.response?.data || err.message);
       setError("Unable to load project invitations");
     } finally {
       setLoading(false);
@@ -27,206 +52,271 @@ function Invitations() {
   };
 
   useEffect(() => {
-    if (token) {
-      fetchInvitations();
-    }
+    if (token) fetchInvitations();
   }, [token]);
 
   const handleResponse = async (memberId, status) => {
     setProcessingId(memberId);
     try {
       await api.put(`/api/projects/members/${memberId}/respond`, { status });
-
-      setInvitations((prevInvitations) =>
-        prevInvitations.map((invitation) =>
-          invitation._id === memberId ? { ...invitation, status } : invitation
-        )
+      setInvitations((prev) =>
+        prev.map((inv) => inv._id === memberId ? { ...inv, status } : inv)
       );
     } catch (err) {
-      console.error(
-        "Invitation Response Error:",
-        err.response?.data || err.message
-      );
-      alert(
-        err.response?.data?.message || "Failed to respond to invitation"
-      );
+      alert(err.response?.data?.message || "Failed to respond to invitation");
     } finally {
       setProcessingId(null);
     }
   };
 
-  if (loading) {
-    return (
-      <div style={{ maxWidth: "900px", margin: "2rem auto", padding: "0 1rem" }}>
-        <p>Loading project invitations...</p>
-      </div>
-    );
-  }
+  const pendingCount = invitations.filter(inv => inv.status === "Pending").length;
 
-  if (error) {
-    return (
-      <div style={{ maxWidth: "900px", margin: "2rem auto", padding: "0 1rem" }}>
-        <p style={{ color: "#ef4444" }}>{error}</p>
-        <button onClick={fetchInvitations}>Retry</button>
+  if (loading) return (
+    <PageShell>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "40vh", gap: "16px" }}>
+        <div style={{
+          width: "44px", height: "44px",
+          border: "3px solid var(--border)",
+          borderTopColor: "var(--primary)",
+          borderRadius: "50%",
+          animation: "spin 0.8s linear infinite",
+        }} />
+        <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>Loading invitations...</p>
       </div>
-    );
-  }
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </PageShell>
+  );
+
+  if (error) return (
+    <PageShell>
+      <div style={{
+        background: "var(--error-bg)", border: "1px solid var(--error-border)",
+        borderRadius: "12px", padding: "2rem", textAlign: "center",
+      }}>
+        <p style={{ color: "var(--error)", marginBottom: "16px" }}>{error}</p>
+        <button onClick={fetchInvitations} style={{
+          padding: "9px 20px", background: "var(--primary)", color: "#fff",
+          border: "none", borderRadius: "8px", cursor: "pointer",
+          fontWeight: "600", fontFamily: "var(--font)",
+        }}>Retry</button>
+      </div>
+    </PageShell>
+  );
 
   return (
-    <div style={{ maxWidth: "900px", margin: "2rem auto", padding: "0 1rem", textAlign: "left" }}>
-      <div style={{ marginBottom: "1.5rem" }}>
-        <h1 style={{ margin: "0 0 0.25rem 0", fontSize: "1.75rem", color: "#111827" }}>
-          Project Invitations ✉️
-        </h1>
-        <p style={{ margin: 0, color: "#6b7280", fontSize: "0.95rem" }}>
-          View and respond to collaboration requests from project owners.
-        </p>
+    <PageShell>
+      {/* Header */}
+      <div style={{ marginBottom: "2rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
+          <span style={{
+            width: "42px", height: "42px", borderRadius: "11px",
+            background: "linear-gradient(135deg, #f59e0b, #ef4444)",
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            fontSize: "20px", boxShadow: "0 6px 20px rgba(245,158,11,0.35)", flexShrink: 0,
+          }}>✉️</span>
+          <div>
+            <h1 style={{
+              margin: 0, fontSize: "2rem", fontWeight: "800",
+              color: "var(--text-primary)", letterSpacing: "-0.03em",
+              display: "flex", alignItems: "center", gap: "10px",
+            }}>
+              Project Invitations
+              {pendingCount > 0 && (
+                <span style={{
+                  fontSize: "0.7rem", fontWeight: "800",
+                  background: "linear-gradient(135deg, #f59e0b, #ef4444)",
+                  color: "#fff", padding: "3px 9px", borderRadius: "20px",
+                  boxShadow: "0 4px 12px rgba(245,158,11,0.4)",
+                }}>
+                  {pendingCount} pending
+                </span>
+              )}
+            </h1>
+            <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.95rem" }}>
+              View and respond to collaboration requests
+            </p>
+          </div>
+        </div>
       </div>
 
+      {/* Empty State */}
       {invitations.length === 0 ? (
-        <div
-          style={{
-            textAlign: "center",
-            padding: "3rem 1.5rem",
-            backgroundColor: "#f9fafb",
-            borderRadius: "8px",
-            border: "1px solid #e5e7eb",
-          }}
-        >
-          <span style={{ fontSize: "2.5rem" }}>📬</span>
-          <h3 style={{ marginTop: "1rem", marginBottom: "0.5rem" }}>
+        <div style={{
+          textAlign: "center", padding: "4rem 2rem",
+          background: "var(--surface)", borderRadius: "18px",
+          border: "1px solid var(--border)",
+        }}>
+          <div style={{
+            width: "80px", height: "80px", borderRadius: "20px",
+            background: "var(--surface-2)", border: "1px solid var(--border)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "2.5rem", margin: "0 auto 20px",
+          }}>📬</div>
+          <h3 style={{ margin: "0 0 8px", fontSize: "1.25rem", color: "var(--text-primary)" }}>
             No invitations yet
           </h3>
-          <p style={{ color: "#6b7280", margin: "0 0 1.5rem 0" }}>
-            When a project owner invites you to their project, you will see it here.
+          <p style={{ color: "var(--text-secondary)", margin: "0 0 24px", fontSize: "0.95rem", maxWidth: "360px", marginLeft: "auto", marginRight: "auto" }}>
+            When a project owner invites you to collaborate, you'll see it here.
           </p>
-          <Link
-            to="/projects"
-            style={{
-              padding: "0.5rem 1rem",
-              backgroundColor: "#2563eb",
-              color: "white",
-              borderRadius: "6px",
-              textDecoration: "none",
-              fontWeight: 500,
-              fontSize: "0.9rem",
-            }}
-          >
-            Explore Projects
+          <Link to="/developers" style={{
+            display: "inline-flex", alignItems: "center", gap: "8px",
+            padding: "11px 24px",
+            background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+            color: "#fff", borderRadius: "10px", textDecoration: "none",
+            fontWeight: "700", fontSize: "0.9rem",
+            boxShadow: "0 6px 20px rgba(99,102,241,0.35)",
+          }}>
+            Browse Developers
           </Link>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          {invitations.map((invitation) => (
-            <div
-              key={invitation._id}
-              style={{
-                backgroundColor: "#ffffff",
-                padding: "1.25rem 1.5rem",
-                borderRadius: "8px",
-                border: "1px solid #e5e7eb",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                flexWrap: "wrap",
-                gap: "1rem",
-              }}
-            >
-              <div style={{ flex: 1, minWidth: "240px" }}>
-                <h2 style={{ margin: "0 0 0.4rem 0", fontSize: "1.15rem", color: "#111827" }}>
-                  {invitation.project?.title || "Untitled Project"}
-                </h2>
-                <p style={{ margin: "0 0 0.6rem 0", color: "#4b5563", fontSize: "0.9rem", lineHeight: 1.4 }}>
-                  {invitation.project?.description || "No description provided"}
-                </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          {invitations.map((inv) => {
+            const sc = STATUS_CONFIG[inv.status] || STATUS_CONFIG.Pending;
+            const isPending = inv.status === "Pending";
+            const isProcessing = processingId === inv._id;
 
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "1rem",
-                    alignItems: "center",
-                    fontSize: "0.85rem",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <span>
-                    <strong>Role:</strong> {invitation.role}
-                  </span>
-                  <span>•</span>
-                  <span>
-                    <strong>Status:</strong>{" "}
-                    <span
-                      style={{
-                        padding: "0.15rem 0.5rem",
-                        borderRadius: "4px",
-                        fontWeight: 600,
-                        backgroundColor:
-                          invitation.status === "Accepted"
-                            ? "#ecfdf5"
-                            : invitation.status === "Pending"
-                            ? "#fffbeb"
-                            : "#fef2f2",
-                        color:
-                          invitation.status === "Accepted"
-                            ? "#059669"
-                            : invitation.status === "Pending"
-                            ? "#d97706"
-                            : "#dc2626",
-                      }}
-                    >
-                      {invitation.status}
-                    </span>
-                  </span>
+            return (
+              <div
+                key={inv._id}
+                style={{
+                  background: "var(--surface)",
+                  borderRadius: "16px",
+                  border: "1px solid var(--border)",
+                  boxShadow: "var(--shadow)",
+                  overflow: "hidden",
+                  transition: "border-color 0.2s",
+                }}
+              >
+                {/* Status accent top bar */}
+                <div style={{ height: "3px", background: `linear-gradient(90deg, ${sc.dot}, transparent)` }} />
+
+                <div style={{
+                  padding: "1.25rem 1.5rem",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "1rem",
+                  flexWrap: "wrap",
+                }}>
+                  {/* Left: Project Info */}
+                  <div style={{ flex: 1, minWidth: "240px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+                      <span style={{
+                        width: "38px", height: "38px", borderRadius: "10px",
+                        background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: "16px", flexShrink: 0,
+                        boxShadow: "0 4px 12px rgba(99,102,241,0.3)",
+                      }}>💻</span>
+                      <div>
+                        <h2 style={{
+                          margin: 0, fontSize: "1.05rem", fontWeight: "700",
+                          color: "var(--text-primary)",
+                        }}>
+                          {inv.project?.title || "Untitled Project"}
+                        </h2>
+                      </div>
+                    </div>
+
+                    <p style={{
+                      margin: "0 0 10px", color: "var(--text-secondary)",
+                      fontSize: "0.875rem", lineHeight: 1.5,
+                      display: "-webkit-box", WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical", overflow: "hidden",
+                    }}>
+                      {inv.project?.description || "No description provided"}
+                    </p>
+
+                    {/* Meta row */}
+                    <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: "5px",
+                        background: "var(--surface-2)", color: "var(--text-secondary)",
+                        border: "1px solid var(--border)",
+                        fontSize: "0.78rem", fontWeight: "600",
+                        padding: "3px 10px", borderRadius: "20px",
+                      }}>
+                        🎭 {inv.role}
+                      </span>
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: "5px",
+                        background: sc.bg, color: sc.color,
+                        border: `1px solid ${sc.border}`,
+                        fontSize: "0.78rem", fontWeight: "700",
+                        padding: "3px 10px", borderRadius: "20px",
+                      }}>
+                        <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: sc.dot, display: "inline-block" }} />
+                        {inv.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Right: Actions */}
+                  <div style={{ display: "flex", gap: "10px", flexShrink: 0, alignItems: "center" }}>
+                    {isPending ? (
+                      <>
+                        <button
+                          onClick={() => handleResponse(inv._id, "Accepted")}
+                          disabled={isProcessing}
+                          style={{
+                            padding: "9px 20px",
+                            background: isProcessing ? "var(--surface-2)" : "linear-gradient(135deg, #10b981, #059669)",
+                            color: isProcessing ? "var(--text-muted)" : "#fff",
+                            border: "none", borderRadius: "9px",
+                            fontWeight: "700", fontSize: "0.875rem",
+                            cursor: isProcessing ? "not-allowed" : "pointer",
+                            fontFamily: "var(--font)",
+                            boxShadow: isProcessing ? "none" : "0 4px 14px rgba(16,185,129,0.35)",
+                            transition: "all 0.2s ease",
+                          }}
+                          onMouseEnter={e => { if (!isProcessing) e.currentTarget.style.transform = "translateY(-1px)"; }}
+                          onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; }}
+                        >
+                          {isProcessing ? "..." : "✓ Accept"}
+                        </button>
+                        <button
+                          onClick={() => handleResponse(inv._id, "Rejected")}
+                          disabled={isProcessing}
+                          style={{
+                            padding: "9px 18px",
+                            background: "var(--surface-2)",
+                            color: "var(--error)",
+                            border: "1px solid var(--error-border)",
+                            borderRadius: "9px",
+                            fontWeight: "700", fontSize: "0.875rem",
+                            cursor: isProcessing ? "not-allowed" : "pointer",
+                            fontFamily: "var(--font)",
+                            transition: "all 0.2s ease",
+                          }}
+                          onMouseEnter={e => { if (!isProcessing) { e.currentTarget.style.background = "var(--error-bg)"; } }}
+                          onMouseLeave={e => { e.currentTarget.style.background = "var(--surface-2)"; }}
+                        >
+                          Decline
+                        </button>
+                      </>
+                    ) : (
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: "8px",
+                        padding: "9px 16px",
+                        background: sc.bg, borderRadius: "9px",
+                        border: `1px solid ${sc.border}`,
+                      }}>
+                        <span>{sc.icon}</span>
+                        <span style={{ fontSize: "0.875rem", fontWeight: "700", color: sc.color }}>
+                          {sc.label}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-
-              {invitation.status === "Pending" ? (
-                <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>
-                  <button
-                    onClick={() => handleResponse(invitation._id, "Accepted")}
-                    disabled={processingId === invitation._id}
-                    style={{
-                      padding: "0.5rem 1rem",
-                      backgroundColor: "#10b981",
-                      color: "white",
-                      border: "none",
-                      borderRadius: "6px",
-                      fontWeight: 600,
-                      fontSize: "0.9rem",
-                      cursor: processingId === invitation._id ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    Accept
-                  </button>
-
-                  <button
-                    onClick={() => handleResponse(invitation._id, "Rejected")}
-                    disabled={processingId === invitation._id}
-                    style={{
-                      padding: "0.5rem 1rem",
-                      backgroundColor: "#ffffff",
-                      color: "#ef4444",
-                      border: "1px solid #fca5a5",
-                      borderRadius: "6px",
-                      fontWeight: 600,
-                      fontSize: "0.9rem",
-                      cursor: processingId === invitation._id ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    Decline
-                  </button>
-                </div>
-              ) : (
-                <span style={{ fontSize: "0.85rem", color: "#6b7280" }}>
-                  {invitation.status === "Accepted" ? "Joined Project" : "Declined"}
-                </span>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
-    </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </PageShell>
   );
 }
 

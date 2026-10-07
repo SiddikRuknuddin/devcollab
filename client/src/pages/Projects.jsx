@@ -1,17 +1,38 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../context/AuthContext";
 
+const STATUS_CONFIG = {
+  Completed: { bg: "rgba(16,185,129,0.12)", color: "#34d399", border: "rgba(16,185,129,0.3)", dot: "#10b981" },
+  "In Progress": { bg: "rgba(99,102,241,0.12)", color: "#818cf8", border: "rgba(99,102,241,0.3)", dot: "#6366f1" },
+  Planning: { bg: "rgba(245,158,11,0.12)", color: "#fbbf24", border: "rgba(245,158,11,0.3)", dot: "#f59e0b" },
+};
+
+const PageShell = ({ children }) => (
+  <div style={{
+    minHeight: "calc(100vh - 64px)",
+    background: "var(--bg)",
+    padding: "2rem 1.25rem 4rem",
+  }}>
+    <div style={{ maxWidth: "1100px", margin: "0 auto" }}>{children}</div>
+  </div>
+);
+
 function Projects() {
   const { token } = useAuth();
-
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [deletingId, setDeletingId] = useState(null);
+  const [hoveredCard, setHoveredCard] = useState(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [searchFocused, setSearchFocused] = useState(false);
 
   const fetchProjects = async () => {
     try {
+      setLoading(true);
       const response = await api.get("/api/projects/my");
       setProjects(response.data.projects || []);
     } catch (err) {
@@ -22,323 +43,402 @@ function Projects() {
     }
   };
 
-  useEffect(() => {
-    if (token) {
-      fetchProjects();
-    }
-  }, [token]);
+  useEffect(() => { if (token) fetchProjects(); }, [token]);
 
   const handleDelete = async (projectId) => {
-    const confirmDelete = window.confirm(
-      "Are you sure you want to delete this project?"
-    );
-
-    if (!confirmDelete) return;
-
+    if (!window.confirm("Are you sure you want to delete this project?")) return;
+    setDeletingId(projectId);
     try {
       await api.delete(`/api/projects/${projectId}`);
       setProjects((prev) => prev.filter((p) => p._id !== projectId));
     } catch (err) {
-      console.error("Delete Project Error:", err.response?.data || err.message);
       alert(err.response?.data?.message || "Failed to delete project");
+    } finally {
+      setDeletingId(null);
     }
   };
 
-  if (loading) {
-    return (
-      <div style={{ maxWidth: "1000px", margin: "2rem auto", padding: "0 1rem" }}>
-        <p>Loading projects...</p>
-      </div>
-    );
-  }
+  const filteredProjects = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return projects.filter((p) => {
+      const matchesStatus = statusFilter === "All" || p.status === statusFilter;
+      if (!matchesStatus) return false;
+      if (!q) return true;
+      return (
+        p.title?.toLowerCase().includes(q) ||
+        p.description?.toLowerCase().includes(q) ||
+        p.technologies?.some((t) => t.toLowerCase().includes(q))
+      );
+    });
+  }, [projects, search, statusFilter]);
 
-  if (error) {
-    return (
-      <div style={{ maxWidth: "1000px", margin: "2rem auto", padding: "0 1rem" }}>
-        <p style={{ color: "#ef4444" }}>{error}</p>
-        <button onClick={fetchProjects}>Retry</button>
+  if (loading) return (
+    <PageShell>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "40vh", gap: "16px" }}>
+        <div style={{
+          width: "44px", height: "44px",
+          border: "3px solid var(--border)",
+          borderTopColor: "var(--primary)",
+          borderRadius: "50%",
+          animation: "spin 0.8s linear infinite",
+        }} />
+        <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>Loading your projects...</p>
       </div>
-    );
-  }
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </PageShell>
+  );
+
+  if (error) return (
+    <PageShell>
+      <div style={{
+        background: "var(--error-bg)", border: "1px solid var(--error-border)",
+        borderRadius: "12px", padding: "2rem", textAlign: "center",
+      }}>
+        <div style={{ fontSize: "2.5rem", marginBottom: "12px" }}>⚠️</div>
+        <p style={{ color: "var(--error)", marginBottom: "16px" }}>{error}</p>
+        <button onClick={fetchProjects} style={{
+          padding: "9px 20px", background: "var(--primary)", color: "#fff",
+          border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontFamily: "var(--font)",
+        }}>Retry</button>
+      </div>
+    </PageShell>
+  );
 
   return (
-    <div style={{ maxWidth: "1000px", margin: "2rem auto", padding: "0 1rem", textAlign: "left" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "1.5rem",
-          flexWrap: "wrap",
-          gap: "1rem",
-        }}
-      >
+    <PageShell>
+      {/* Header */}
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        flexWrap: "wrap", gap: "1rem", marginBottom: "1.75rem",
+      }}>
         <div>
-          <h1 style={{ margin: "0 0 0.25rem 0", fontSize: "1.75rem", color: "#111827" }}>
-            My Projects 💻
+          <h1 style={{
+            margin: "0 0 6px", fontSize: "2rem", fontWeight: "800",
+            color: "var(--text-primary)", letterSpacing: "-0.03em",
+            display: "flex", alignItems: "center", gap: "10px",
+          }}>
+            <span style={{
+              width: "42px", height: "42px", borderRadius: "11px",
+              background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              fontSize: "20px", boxShadow: "0 6px 20px rgba(99,102,241,0.35)",
+            }}>💻</span>
+            My Projects
           </h1>
-          <p style={{ margin: 0, color: "#6b7280", fontSize: "0.95rem" }}>
-            Manage and track your development projects.
+          <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.95rem" }}>
+            Manage and track your development projects
+            {projects.length > 0 && <span style={{ marginLeft: "8px", color: "var(--text-muted)", fontSize: "0.85rem" }}>— {filteredProjects.length} of {projects.length} project{projects.length !== 1 ? "s" : ""}</span>}
           </p>
         </div>
-
-        <Link
-          to="/projects/create"
-          style={{
-            padding: "0.6rem 1.25rem",
-            backgroundColor: "#2563eb",
-            color: "white",
-            borderRadius: "6px",
-            textDecoration: "none",
-            fontWeight: 600,
-            fontSize: "0.9rem",
-          }}
+        <Link to="/projects/create" style={{
+          display: "inline-flex", alignItems: "center", gap: "8px",
+          padding: "10px 20px",
+          background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+          color: "#fff", borderRadius: "10px", textDecoration: "none",
+          fontWeight: "700", fontSize: "0.9rem",
+          boxShadow: "0 6px 20px rgba(99,102,241,0.35)",
+          transition: "all 0.2s ease",
+        }}
+          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(99,102,241,0.5)"; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 6px 20px rgba(99,102,241,0.35)"; }}
         >
-          + Create Project
+          <span style={{ fontSize: "1.1rem" }}>+</span> New Project
         </Link>
       </div>
 
-      {projects.length === 0 ? (
-        <div
-          style={{
-            textAlign: "center",
-            padding: "3.5rem 1.5rem",
-            backgroundColor: "#f9fafb",
-            borderRadius: "8px",
-            border: "1px solid #e5e7eb",
-          }}
-        >
-          <span style={{ fontSize: "2.5rem" }}>📁</span>
-          <h3 style={{ marginTop: "1rem", marginBottom: "0.5rem" }}>
-            No projects yet
-          </h3>
-          <p style={{ color: "#6b7280", margin: "0 0 1.5rem 0" }}>
-            Create your first project to collaborate with developers.
-          </p>
-          <Link
-            to="/projects/create"
-            style={{
-              padding: "0.6rem 1.2rem",
-              backgroundColor: "#2563eb",
-              color: "white",
-              borderRadius: "6px",
-              textDecoration: "none",
-              fontWeight: 500,
-            }}
-          >
-            Create Your First Project
-          </Link>
-        </div>
-      ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
-            gap: "1.25rem",
-          }}
-        >
-          {projects.map((project) => (
-            <div
-              key={project._id}
-              style={{
-                backgroundColor: "#ffffff",
-                padding: "1.25rem",
-                borderRadius: "8px",
-                border: "1px solid #e5e7eb",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "space-between",
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "flex-start",
-                    marginBottom: "0.5rem",
-                    gap: "0.5rem",
-                  }}
-                >
-                  <h2
-                    style={{
-                      margin: 0,
-                      fontSize: "1.15rem",
-                      color: "#111827",
-                    }}
-                  >
-                    {project.title}
-                  </h2>
-                  <span
-                    style={{
-                      fontSize: "0.75rem",
-                      padding: "0.15rem 0.5rem",
-                      borderRadius: "4px",
-                      fontWeight: 600,
-                      backgroundColor:
-                        project.status === "Completed"
-                          ? "#ecfdf5"
-                          : project.status === "In Progress"
-                          ? "#eff6ff"
-                          : "#fffbeb",
-                      color:
-                        project.status === "Completed"
-                          ? "#059669"
-                          : project.status === "In Progress"
-                          ? "#2563eb"
-                          : "#d97706",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {project.status}
-                  </span>
-                </div>
-
-                <p
-                  style={{
-                    margin: "0 0 0.75rem 0",
-                    color: "#4b5563",
-                    fontSize: "0.9rem",
-                    lineHeight: 1.4,
-                    display: "-webkit-box",
-                    WebkitLineClamp: 3,
-                    WebkitBoxOrient: "vertical",
-                    overflow: "hidden",
-                  }}
-                >
-                  {project.description}
-                </p>
-
-                {project.technologies?.length > 0 && (
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "0.35rem",
-                      flexWrap: "wrap",
-                      marginBottom: "0.75rem",
-                    }}
-                  >
-                    {project.technologies.slice(0, 4).map((tech, idx) => (
-                      <span
-                        key={idx}
-                        style={{
-                          fontSize: "0.75rem",
-                          backgroundColor: "#f3f4f6",
-                          color: "#374151",
-                          padding: "0.15rem 0.4rem",
-                          borderRadius: "4px",
-                        }}
-                      >
-                        {tech}
-                      </span>
-                    ))}
-                    {project.technologies.length > 4 && (
-                      <span
-                        style={{
-                          fontSize: "0.75rem",
-                          color: "#6b7280",
-                        }}
-                      >
-                        +{project.technologies.length - 4} more
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                {project.githubUrl && (
-                  <div style={{ marginBottom: "0.75rem" }}>
-                    <a
-                      href={project.githubUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        fontSize: "0.85rem",
-                        color: "#2563eb",
-                        textDecoration: "none",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "0.25rem",
-                      }}
-                    >
-                      <span>🐙</span> GitHub
-                    </a>
-                  </div>
-                )}
-              </div>
-
-              <div
+      {/* Search & Filter Bar (Only show if there are projects or active filter) */}
+      {projects.length > 0 && (
+        <div style={{
+          display: "flex", flexDirection: "column", gap: "12px",
+          marginBottom: "1.75rem",
+        }}>
+          <div style={{
+            display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center",
+          }}>
+            {/* Search Input */}
+            <div style={{
+              flex: 1, minWidth: "260px",
+              background: "var(--surface)",
+              border: `1px solid ${searchFocused ? "var(--primary)" : "var(--border)"}`,
+              borderRadius: "12px",
+              padding: "4px 14px",
+              display: "flex", alignItems: "center", gap: "10px",
+              boxShadow: searchFocused ? "0 0 0 3px var(--primary-light)" : "var(--shadow)",
+              transition: "all 0.2s ease",
+            }}>
+              <span style={{ fontSize: "16px", opacity: 0.5 }}>🔍</span>
+              <input
+                type="text"
+                placeholder="Search projects by title, description, or tech (e.g. React)..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
                 style={{
-                  display: "flex",
-                  gap: "0.5rem",
-                  borderTop: "1px solid #f3f4f6",
-                  paddingTop: "0.75rem",
-                  flexWrap: "wrap",
-                  alignItems: "center",
+                  flex: 1,
+                  padding: "9px 0",
+                  fontSize: "0.9rem",
+                  border: "none",
+                  outline: "none",
+                  background: "transparent",
+                  color: "var(--text-primary)",
+                  fontFamily: "var(--font)",
                 }}
-              >
-                <Link
-                  to={`/projects/${project._id}`}
-                  style={{
-                    fontSize: "0.85rem",
-                    color: "#2563eb",
-                    textDecoration: "none",
-                    fontWeight: 500,
-                  }}
-                >
-                  View Details
-                </Link>
-
-                <span style={{ color: "#d1d5db" }}>•</span>
-
-                <Link
-                  to={`/projects/edit/${project._id}`}
-                  style={{
-                    fontSize: "0.85rem",
-                    color: "#4b5563",
-                    textDecoration: "none",
-                    fontWeight: 500,
-                  }}
-                >
-                  Edit
-                </Link>
-
-                <span style={{ color: "#d1d5db" }}>•</span>
-
-                <Link
-                  to={`/projects/${project._id}/members`}
-                  style={{
-                    fontSize: "0.85rem",
-                    color: "#4b5563",
-                    textDecoration: "none",
-                    fontWeight: 500,
-                  }}
-                >
-                  Members
-                </Link>
-
-                <span style={{ color: "#d1d5db" }}>•</span>
-
+              />
+              {search && (
                 <button
-                  onClick={() => handleDelete(project._id)}
+                  onClick={() => setSearch("")}
                   style={{
-                    background: "none",
-                    border: "none",
-                    color: "#ef4444",
-                    fontSize: "0.85rem",
-                    cursor: "pointer",
-                    padding: 0,
-                    fontWeight: 500,
+                    background: "var(--surface-2)", border: "none",
+                    borderRadius: "6px", padding: "4px 8px",
+                    color: "var(--text-muted)", cursor: "pointer",
+                    fontSize: "0.8rem", fontFamily: "var(--font)",
                   }}
-                >
-                  Delete
-                </button>
-              </div>
+                >✕ Clear</button>
+              )}
             </div>
-          ))}
+
+            {/* Status Tabs */}
+            <div style={{
+              display: "flex", gap: "6px", background: "var(--surface)",
+              padding: "4px", borderRadius: "10px", border: "1px solid var(--border)",
+            }}>
+              {["All", "Planning", "In Progress", "Completed"].map((st) => {
+                const isSelected = statusFilter === st;
+                return (
+                  <button
+                    key={st}
+                    onClick={() => setStatusFilter(st)}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: "7px",
+                      border: "none",
+                      background: isSelected ? "var(--primary)" : "transparent",
+                      color: isSelected ? "#fff" : "var(--text-secondary)",
+                      fontWeight: isSelected ? "700" : "500",
+                      fontSize: "0.82rem",
+                      cursor: "pointer",
+                      fontFamily: "var(--font)",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    {st}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
-    </div>
+
+      {/* Empty State when no projects exist at all */}
+      {projects.length === 0 ? (
+        <div style={{
+          textAlign: "center", padding: "4rem 2rem",
+          background: "var(--surface)", borderRadius: "18px",
+          border: "1px solid var(--border)",
+          boxShadow: "var(--shadow)",
+        }}>
+          <div style={{
+            width: "72px", height: "72px", borderRadius: "18px",
+            background: "var(--surface-2)", border: "1px solid var(--border)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "2rem", margin: "0 auto 20px",
+          }}>📁</div>
+          <h3 style={{ margin: "0 0 8px", fontSize: "1.25rem", color: "var(--text-primary)" }}>No projects yet</h3>
+          <p style={{ color: "var(--text-secondary)", margin: "0 0 24px", fontSize: "0.95rem" }}>
+            Create your first project and start collaborating with developers worldwide.
+          </p>
+          <Link to="/projects/create" style={{
+            display: "inline-flex", alignItems: "center", gap: "8px",
+            padding: "11px 24px",
+            background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+            color: "#fff", borderRadius: "10px", textDecoration: "none",
+            fontWeight: "700", fontSize: "0.9rem",
+            boxShadow: "0 6px 20px rgba(99,102,241,0.35)",
+          }}>
+            Create Your First Project →
+          </Link>
+        </div>
+      ) : filteredProjects.length === 0 ? (
+        /* No Search Match State */
+        <div style={{
+          textAlign: "center", padding: "3.5rem 2rem",
+          background: "var(--surface)", borderRadius: "16px",
+          border: "1px solid var(--border)",
+          boxShadow: "var(--shadow)",
+        }}>
+          <div style={{ fontSize: "2.5rem", marginBottom: "12px" }}>🔍</div>
+          <h3 style={{ margin: "0 0 6px", fontSize: "1.2rem", color: "var(--text-primary)" }}>No matching projects</h3>
+          <p style={{ color: "var(--text-secondary)", margin: "0 0 20px", fontSize: "0.9rem" }}>
+            No projects found matching "{search || statusFilter}". Try adjusting your search query or status filter.
+          </p>
+          <button
+            onClick={() => { setSearch(""); setStatusFilter("All"); }}
+            style={{
+              padding: "9px 20px", background: "var(--surface-2)", color: "var(--primary)",
+              border: "1px solid var(--primary-border)", borderRadius: "8px",
+              cursor: "pointer", fontWeight: "600", fontFamily: "var(--font)",
+            }}
+          >
+            Clear Filters
+          </button>
+        </div>
+      ) : (
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+          gap: "1.25rem",
+        }}>
+          {filteredProjects.map((project) => {
+            const sc = STATUS_CONFIG[project.status] || STATUS_CONFIG["Planning"];
+            const isHovered = hoveredCard === project._id;
+            return (
+              <div
+                key={project._id}
+                onMouseEnter={() => setHoveredCard(project._id)}
+                onMouseLeave={() => setHoveredCard(null)}
+                style={{
+                  background: "var(--surface)",
+                  borderRadius: "16px",
+                  border: `1px solid ${isHovered ? "var(--primary-border)" : "var(--border)"}`,
+                  boxShadow: isHovered ? "var(--shadow-lg), 0 0 0 1px var(--primary-border)" : "var(--shadow)",
+                  display: "flex", flexDirection: "column",
+                  transition: "all 0.2s ease",
+                  transform: isHovered ? "translateY(-3px)" : "translateY(0)",
+                  overflow: "hidden",
+                  position: "relative",
+                }}
+              >
+                {/* Top accent bar */}
+                <div style={{
+                  height: "3px",
+                  background: `linear-gradient(90deg, ${sc.dot}, transparent)`,
+                }} />
+
+                <div style={{ padding: "1.25rem 1.25rem 0" }}>
+                  {/* Title + Status */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px", marginBottom: "10px" }}>
+                    <h2 style={{
+                      margin: 0, fontSize: "1.05rem", fontWeight: "700",
+                      color: "var(--text-primary)", lineHeight: 1.3, flex: 1,
+                    }}>
+                      {project.title}
+                    </h2>
+                    <span style={{
+                      fontSize: "0.72rem", padding: "3px 9px",
+                      borderRadius: "20px", fontWeight: "700",
+                      background: sc.bg, color: sc.color,
+                      border: `1px solid ${sc.border}`,
+                      whiteSpace: "nowrap", flexShrink: 0,
+                      display: "flex", alignItems: "center", gap: "5px",
+                    }}>
+                      <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: sc.dot, display: "inline-block" }} />
+                      {project.status}
+                    </span>
+                  </div>
+
+                  {/* Description */}
+                  <p style={{
+                    margin: "0 0 12px", color: "var(--text-secondary)",
+                    fontSize: "0.875rem", lineHeight: 1.55,
+                    display: "-webkit-box", WebkitLineClamp: 3,
+                    WebkitBoxOrient: "vertical", overflow: "hidden",
+                  }}>
+                    {project.description || "No description provided."}
+                  </p>
+
+                  {/* Tech badges */}
+                  {project.technologies?.length > 0 && (
+                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", marginBottom: "12px" }}>
+                      {project.technologies.slice(0, 4).map((tech, idx) => (
+                        <span key={idx} style={{
+                          fontSize: "0.72rem", fontWeight: "600",
+                          background: "var(--surface-2)", color: "var(--text-muted)",
+                          border: "1px solid var(--border)",
+                          padding: "2px 8px", borderRadius: "6px",
+                        }}>
+                          {tech}
+                        </span>
+                      ))}
+                      {project.technologies.length > 4 && (
+                        <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", padding: "2px 4px" }}>
+                          +{project.technologies.length - 4} more
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* GitHub link */}
+                  {project.githubUrl && (
+                    <a href={project.githubUrl} target="_blank" rel="noopener noreferrer" style={{
+                      display: "inline-flex", alignItems: "center", gap: "5px",
+                      fontSize: "0.8rem", color: "var(--primary)",
+                      textDecoration: "none", marginBottom: "12px",
+                      fontWeight: "600",
+                    }}>
+                      <span>🐙</span> GitHub Repository
+                    </a>
+                  )}
+                </div>
+
+                {/* Footer actions */}
+                <div style={{
+                  display: "flex", gap: "6px", alignItems: "center",
+                  borderTop: "1px solid var(--border)",
+                  padding: "10px 1.25rem",
+                  marginTop: "auto",
+                  background: "var(--surface-2)",
+                  flexWrap: "wrap",
+                }}>
+                  <Link to={`/projects/${project._id}`} style={{
+                    fontSize: "0.82rem", color: "var(--primary)", fontWeight: "700",
+                    textDecoration: "none", padding: "5px 10px",
+                    background: "rgba(99,102,241,0.1)", borderRadius: "7px",
+                    border: "1px solid var(--primary-border)",
+                    transition: "all 0.15s",
+                  }}>
+                    View
+                  </Link>
+                  <Link to={`/projects/edit/${project._id}`} style={{
+                    fontSize: "0.82rem", color: "var(--text-secondary)", fontWeight: "600",
+                    textDecoration: "none", padding: "5px 10px",
+                    background: "var(--surface)", borderRadius: "7px",
+                    border: "1px solid var(--border)",
+                  }}>
+                    Edit
+                  </Link>
+                  <Link to={`/projects/${project._id}/members`} style={{
+                    fontSize: "0.82rem", color: "var(--text-secondary)", fontWeight: "600",
+                    textDecoration: "none", padding: "5px 10px",
+                    background: "var(--surface)", borderRadius: "7px",
+                    border: "1px solid var(--border)",
+                  }}>
+                    Members
+                  </Link>
+                  <button
+                    onClick={() => handleDelete(project._id)}
+                    disabled={deletingId === project._id}
+                    style={{
+                      fontSize: "0.82rem", color: "var(--error)", fontWeight: "600",
+                      background: "none", border: "none", cursor: "pointer",
+                      padding: "5px 8px", marginLeft: "auto",
+                      opacity: deletingId === project._id ? 0.5 : 1,
+                      fontFamily: "var(--font)",
+                    }}
+                  >
+                    {deletingId === project._id ? "..." : "Delete"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
+    </PageShell>
   );
 }
 

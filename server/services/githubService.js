@@ -77,6 +77,42 @@ const getPublicRepoInfo = async (owner, repo) => {
 
     const data = await response.json();
 
+    // Fetch recent commits (best effort, ignore failure)
+    let recentCommits = [];
+    try {
+      const commitsRes = await fetch(`${apiUrl}/commits?per_page=5`, {
+        headers: {
+          "User-Agent": "DevCollab-App",
+          Accept: "application/vnd.github.v3+json",
+        },
+      });
+      if (commitsRes.ok) {
+        const commitsData = await commitsRes.json();
+        recentCommits = (Array.isArray(commitsData) ? commitsData : []).map((c) => ({
+          sha: c.sha ? c.sha.slice(0, 7) : "",
+          message: c.commit?.message?.split("\n")[0] || "Update",
+          author: c.commit?.author?.name || c.author?.login || "Contributor",
+          avatar: c.author?.avatar_url || "",
+          date: c.commit?.author?.date || "",
+          url: c.html_url || "",
+        }));
+      }
+    } catch (_) {}
+
+    // Fetch languages (best effort)
+    let languages = {};
+    try {
+      const langRes = await fetch(`${apiUrl}/languages`, {
+        headers: {
+          "User-Agent": "DevCollab-App",
+          Accept: "application/vnd.github.v3+json",
+        },
+      });
+      if (langRes.ok) {
+        languages = await langRes.json();
+      }
+    } catch (_) {}
+
     return {
       success: true,
       repo: {
@@ -92,6 +128,8 @@ const getPublicRepoInfo = async (owner, repo) => {
         isPrivate: data.private,
         ownerAvatar: data.owner?.avatar_url || "",
         topics: data.topics || [],
+        recentCommits,
+        languages,
       },
     };
   } catch (error) {

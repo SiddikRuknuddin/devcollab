@@ -3,9 +3,11 @@ import { useNavigate, Link } from "react-router-dom";
 import { GoogleLogin } from "@react-oauth/google";
 import api from "../services/api";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
 
 function Register() {
   const { login } = useAuth();
+  const { isDark } = useTheme();
   const navigate = useNavigate();
 
   const [formData, setFormData] = useState({
@@ -17,11 +19,12 @@ function Register() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [successData, setSuccessData] = useState(null); // { message, email, emailSent }
+  const [successData, setSuccessData] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [resendMsg, setResendMsg] = useState("");
+  const [focusedField, setFocusedField] = useState(null);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -35,17 +38,16 @@ function Register() {
     if (/[A-Z]/.test(pw)) score++;
     if (/[0-9]/.test(pw)) score++;
     if (/[^A-Za-z0-9]/.test(pw)) score++;
-    if (score <= 1) return { label: "Weak", color: "#ef4444", width: "25%" };
-    if (score === 2) return { label: "Fair", color: "#f59e0b", width: "50%" };
-    if (score === 3) return { label: "Good", color: "#10b981", width: "75%" };
-    return { label: "Strong", color: "#059669", width: "100%" };
+    if (score <= 1) return { label: "Weak", color: "#f87171", width: "25%" };
+    if (score === 2) return { label: "Fair", color: "#fbbf24", width: "50%" };
+    if (score === 3) return { label: "Good", color: "#34d399", width: "75%" };
+    return { label: "Strong", color: "#10b981", width: "100%" };
   };
 
   const strength = getPasswordStrength(formData.password);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     if (!formData.name.trim() || !formData.email.trim() || !formData.password || !formData.confirmPassword) {
       setError("Please fill in all fields");
       return;
@@ -68,7 +70,6 @@ function Register() {
         email: formData.email.trim(),
         password: formData.password,
       });
-
       setSuccessData({
         message: response.data.message,
         email: formData.email.trim(),
@@ -97,6 +98,7 @@ function Register() {
   const handleGoogleError = () => {
     setError("Google sign-up was cancelled or failed.");
   };
+
   const handleResend = async () => {
     if (!successData?.email) return;
     setResendLoading(true);
@@ -111,31 +113,62 @@ function Register() {
     }
   };
 
-  // ── Success State — Email Verification Needed ───────────────────────────────
+  const getInputStyle = (field, extraBorderColor) => ({
+    width: "100%",
+    padding: "11px 14px",
+    borderRadius: "9px",
+    border: `1px solid ${extraBorderColor || (focusedField === field ? "var(--primary)" : "var(--border)")}`,
+    fontSize: "0.9rem",
+    color: "var(--text-primary)",
+    background: focusedField === field ? "var(--surface)" : "var(--surface-2)",
+    outline: "none",
+    boxSizing: "border-box",
+    fontFamily: "var(--font)",
+    transition: "all 0.2s ease",
+    boxShadow: focusedField === field ? "0 0 0 3px var(--primary-light)" : "none",
+  });
+
+  // ── Success / Verify Email State ──
   if (successData) {
     return (
-      <div style={outerStyle}>
-        <div style={cardStyle}>
-          <div style={{ textAlign: "center", marginBottom: "24px" }}>
-            <div style={{ fontSize: "52px", marginBottom: "12px" }}>📧</div>
-            <h1 style={{ margin: "0 0 8px", fontSize: "1.5rem", color: "#0f172a" }}>
-              Check your email
-            </h1>
-            <p style={{ margin: 0, color: "#64748b", fontSize: "0.9rem", lineHeight: 1.6 }}>
-              {successData.emailSent
-                ? <>We sent a verification link to <strong>{successData.email}</strong>. Click the link to activate your account.</>
-                : "Your account was created. Email verification is temporarily unavailable — contact support if needed."}
-            </p>
-          </div>
+      <div style={{
+        minHeight: "calc(100vh - 64px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "32px 16px",
+        background: "var(--bg)",
+      }}>
+        <div style={{
+          width: "100%",
+          maxWidth: "440px",
+          background: "var(--surface)",
+          borderRadius: "18px",
+          border: "1px solid var(--border)",
+          padding: "40px 36px",
+          boxShadow: "var(--shadow-lg)",
+          textAlign: "center",
+          animation: "fadeInUp 0.4s ease",
+        }}>
+          <div style={{ fontSize: "52px", marginBottom: "16px" }}>📧</div>
+          <h1 style={{ margin: "0 0 10px", fontSize: "1.6rem", fontWeight: "800", color: "var(--text-primary)" }}>
+            Check your email
+          </h1>
+          <p style={{ margin: "0 0 24px", color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: 1.7 }}>
+            {successData.emailSent
+              ? <>We sent a verification link to <strong style={{ color: "var(--text-primary)" }}>{successData.email}</strong>. Click the link to activate your account.</>
+              : "Your account was created. Email verification is temporarily unavailable — contact support if needed."}
+          </p>
 
           <div style={{
-            background: "#eff6ff",
-            border: "1px solid #bfdbfe",
-            borderRadius: "8px",
-            padding: "14px 16px",
+            background: "var(--info-bg)",
+            border: "1px solid var(--info-border)",
+            borderRadius: "10px",
+            padding: "14px 18px",
             marginBottom: "20px",
+            textAlign: "left",
           }}>
-            <ul style={{ margin: 0, padding: "0 0 0 18px", fontSize: "0.875rem", color: "#1e40af", lineHeight: 1.8 }}>
+            <ul style={{ margin: 0, padding: "0 0 0 18px", fontSize: "0.875rem", color: "var(--info)", lineHeight: 1.9 }}>
               <li>Check your inbox (and spam folder)</li>
               <li>The link expires in <strong>24 hours</strong></li>
               <li>After verifying, you can log in</li>
@@ -144,10 +177,11 @@ function Register() {
 
           {resendMsg && (
             <div style={{
-              padding: "10px 14px",
-              background: resendMsg.includes("resent") ? "#ecfdf5" : "#fef2f2",
-              borderRadius: "7px",
-              color: resendMsg.includes("resent") ? "#059669" : "#dc2626",
+              padding: "11px 16px",
+              background: resendMsg.includes("resent") ? "var(--success-bg)" : "var(--error-bg)",
+              border: `1px solid ${resendMsg.includes("resent") ? "var(--success-border)" : "var(--error-border)"}`,
+              borderRadius: "8px",
+              color: resendMsg.includes("resent") ? "var(--success)" : "var(--error)",
               fontSize: "0.875rem",
               marginBottom: "16px",
             }}>
@@ -159,12 +193,18 @@ function Register() {
             onClick={handleResend}
             disabled={resendLoading}
             style={{
-              ...submitBtnStyle,
-              background: "#fff",
-              color: "#2563eb",
-              border: "1px solid #bfdbfe",
-              marginBottom: "12px",
+              width: "100%",
+              padding: "11px",
+              background: "var(--surface-2)",
+              color: "var(--primary)",
+              border: "1px solid var(--primary-border)",
+              borderRadius: "10px",
+              fontSize: "0.9rem",
+              fontWeight: "600",
+              cursor: resendLoading ? "not-allowed" : "pointer",
               opacity: resendLoading ? 0.6 : 1,
+              fontFamily: "var(--font)",
+              marginBottom: "12px",
             }}
           >
             {resendLoading ? "Sending..." : "Resend verification email"}
@@ -177,58 +217,143 @@ function Register() {
               textAlign: "center",
               padding: "10px",
               fontSize: "0.875rem",
-              color: "#475569",
+              color: "var(--text-muted)",
               textDecoration: "none",
             }}
           >
-            Already verified? <span style={{ color: "#2563eb", fontWeight: "600" }}>Sign In</span>
+            Already verified?{" "}
+            <span style={{ color: "var(--primary)", fontWeight: "700" }}>Sign In</span>
           </Link>
         </div>
+        <style>{`
+          @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(16px); }
+            to   { opacity: 1; transform: translateY(0); }
+          }
+        `}</style>
       </div>
     );
   }
 
-  // ── Registration Form ────────────────────────────────────────────────────────
+  // ── Registration Form ──
   return (
-    <div style={outerStyle}>
-      <div style={cardStyle}>
-        <div style={{ textAlign: "center", marginBottom: "24px" }}>
-          <h1 style={{ margin: "0 0 6px", fontSize: "1.75rem", color: "#0f172a" }}>
-            Create Account 🚀
+    <div style={{
+      minHeight: "calc(100vh - 64px)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "32px 16px",
+      background: "var(--bg)",
+      position: "relative",
+      overflow: "hidden",
+    }}>
+      {/* Background glow */}
+      <div style={{
+        position: "absolute",
+        top: "50%", left: "50%",
+        transform: "translate(-50%, -50%)",
+        width: "600px", height: "500px",
+        background: "radial-gradient(ellipse, rgba(139,92,246,0.1) 0%, transparent 70%)",
+        pointerEvents: "none",
+      }} />
+
+      <div style={{
+        width: "100%",
+        maxWidth: "440px",
+        background: "var(--surface)",
+        borderRadius: "18px",
+        border: "1px solid var(--border)",
+        padding: "36px",
+        boxShadow: "var(--shadow-lg), 0 0 0 1px var(--border)",
+        position: "relative",
+        zIndex: 1,
+        animation: "fadeInUp 0.4s ease",
+      }}>
+        {/* Header */}
+        <div style={{ textAlign: "center", marginBottom: "28px" }}>
+          <div style={{
+            width: "52px", height: "52px",
+            background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+            borderRadius: "14px",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            margin: "0 auto 16px",
+            boxShadow: "0 8px 24px rgba(99,102,241,0.4)",
+            fontSize: "22px",
+          }}>
+            🚀
+          </div>
+          <h1 style={{
+            margin: "0 0 6px", fontSize: "1.7rem", fontWeight: "800",
+            color: "var(--text-primary)", letterSpacing: "-0.03em",
+          }}>
+            Create Account
           </h1>
-          <p style={{ margin: 0, color: "#64748b", fontSize: "0.9rem" }}>
+          <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.9rem" }}>
             Join DevCollab and connect with developers
           </p>
         </div>
 
-        {error && <div style={errorStyle}>{error}</div>}
+        {/* Error */}
+        {error && (
+          <div style={{
+            padding: "12px 16px",
+            background: "var(--error-bg)",
+            border: "1px solid var(--error-border)",
+            borderRadius: "9px",
+            color: "var(--error)",
+            fontSize: "0.875rem",
+            marginBottom: "18px",
+            display: "flex", alignItems: "center", gap: "8px",
+          }}>
+            ⚠️ {error}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           {/* Name */}
-          <div style={fieldWrap}>
-            <label htmlFor="reg-name" style={labelStyle}>Full Name</label>
+          <div style={{ marginBottom: "14px" }}>
+            <label htmlFor="reg-name" style={{
+              display: "block", fontSize: "0.85rem", fontWeight: "600",
+              color: "var(--text-secondary)", marginBottom: "7px",
+            }}>
+              Full Name
+            </label>
             <input
               id="reg-name" type="text" name="name"
               value={formData.name} onChange={handleChange}
               placeholder="John Doe" required autoComplete="name"
-              style={inputStyle}
+              style={getInputStyle("name")}
+              onFocus={() => setFocusedField("name")}
+              onBlur={() => setFocusedField(null)}
             />
           </div>
 
           {/* Email */}
-          <div style={fieldWrap}>
-            <label htmlFor="reg-email" style={labelStyle}>Email Address</label>
+          <div style={{ marginBottom: "14px" }}>
+            <label htmlFor="reg-email" style={{
+              display: "block", fontSize: "0.85rem", fontWeight: "600",
+              color: "var(--text-secondary)", marginBottom: "7px",
+            }}>
+              Email Address
+            </label>
             <input
               id="reg-email" type="email" name="email"
               value={formData.email} onChange={handleChange}
               placeholder="john@example.com" required autoComplete="email"
-              style={inputStyle}
+              style={getInputStyle("email")}
+              onFocus={() => setFocusedField("email")}
+              onBlur={() => setFocusedField(null)}
             />
           </div>
 
           {/* Password */}
-          <div style={fieldWrap}>
-            <label htmlFor="reg-password" style={labelStyle}>Password</label>
+          <div style={{ marginBottom: "14px" }}>
+            <label htmlFor="reg-password" style={{
+              display: "block", fontSize: "0.85rem", fontWeight: "600",
+              color: "var(--text-secondary)", marginBottom: "7px",
+            }}>
+              Password
+            </label>
             <div style={{ position: "relative" }}>
               <input
                 id="reg-password"
@@ -236,20 +361,58 @@ function Register() {
                 name="password"
                 value={formData.password} onChange={handleChange}
                 placeholder="Create password (min. 6 chars)" required autoComplete="new-password"
-                style={{ ...inputStyle, paddingRight: "44px" }}
+                style={{ ...getInputStyle("password"), paddingRight: "46px" }}
+                onFocus={() => setFocusedField("password")}
+                onBlur={() => setFocusedField(null)}
               />
               <button
-                type="button" tabIndex={-1}
+                type="button"
+                tabIndex={-1}
+                aria-label={showPassword ? "Hide password" : "Show password"}
                 onClick={() => setShowPassword((p) => !p)}
-                style={eyeBtnStyle}
+                style={{
+                  position: "absolute",
+                  right: "12px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "6px",
+                  borderRadius: "6px",
+                  color: "var(--text-secondary)",
+                  transition: "color 0.15s ease",
+                  lineHeight: 1,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "var(--text-primary)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "var(--text-secondary)";
+                }}
               >
-                {showPassword ? "🙈" : "👁️"}
+                {showPassword ? (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                    <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+                  </svg>
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                )}
               </button>
             </div>
             {/* Strength Meter */}
             {formData.password && strength && (
-              <div style={{ marginTop: "6px" }}>
-                <div style={{ height: "4px", background: "#f1f5f9", borderRadius: "9999px", overflow: "hidden" }}>
+              <div style={{ marginTop: "8px" }}>
+                <div style={{ height: "4px", background: "var(--surface-3)", borderRadius: "9999px", overflow: "hidden" }}>
                   <div style={{
                     height: "100%",
                     width: strength.width,
@@ -258,7 +421,7 @@ function Register() {
                     transition: "width 0.3s ease, background 0.3s ease",
                   }} />
                 </div>
-                <span style={{ fontSize: "0.75rem", color: strength.color, fontWeight: "600", marginTop: "3px", display: "inline-block" }}>
+                <span style={{ fontSize: "0.75rem", color: strength.color, fontWeight: "700", marginTop: "4px", display: "inline-block" }}>
                   {strength.label}
                 </span>
               </div>
@@ -266,8 +429,13 @@ function Register() {
           </div>
 
           {/* Confirm Password */}
-          <div style={{ ...fieldWrap, marginBottom: "20px" }}>
-            <label htmlFor="reg-confirm" style={labelStyle}>Confirm Password</label>
+          <div style={{ marginBottom: "22px" }}>
+            <label htmlFor="reg-confirm" style={{
+              display: "block", fontSize: "0.85rem", fontWeight: "600",
+              color: "var(--text-secondary)", marginBottom: "7px",
+            }}>
+              Confirm Password
+            </label>
             <div style={{ position: "relative" }}>
               <input
                 id="reg-confirm"
@@ -276,141 +444,157 @@ function Register() {
                 value={formData.confirmPassword} onChange={handleChange}
                 placeholder="Repeat password" required autoComplete="new-password"
                 style={{
-                  ...inputStyle,
-                  paddingRight: "44px",
-                  borderColor: formData.confirmPassword && formData.confirmPassword !== formData.password ? "#fca5a5" : undefined,
+                  ...getInputStyle("confirm",
+                    formData.confirmPassword && formData.confirmPassword !== formData.password
+                      ? "var(--error-border)" : undefined),
+                  paddingRight: "46px"
                 }}
+                onFocus={() => setFocusedField("confirm")}
+                onBlur={() => setFocusedField(null)}
               />
               <button
-                type="button" tabIndex={-1}
+                type="button"
+                tabIndex={-1}
+                aria-label={showConfirmPassword ? "Hide password" : "Show password"}
                 onClick={() => setShowConfirmPassword((p) => !p)}
-                style={eyeBtnStyle}
+                style={{
+                  position: "absolute",
+                  right: "12px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "6px",
+                  borderRadius: "6px",
+                  color: "var(--text-secondary)",
+                  transition: "color 0.15s ease",
+                  lineHeight: 1,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "var(--text-primary)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "var(--text-secondary)";
+                }}
               >
-                {showConfirmPassword ? "🙈" : "👁️"}
+                {showConfirmPassword ? (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                    <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+                  </svg>
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                )}
               </button>
             </div>
             {formData.confirmPassword && formData.confirmPassword !== formData.password && (
-              <p style={{ margin: "4px 0 0", fontSize: "0.78rem", color: "#ef4444" }}>
+              <p style={{ margin: "5px 0 0", fontSize: "0.78rem", color: "var(--error)", fontWeight: "500" }}>
                 Passwords don't match
               </p>
             )}
           </div>
 
-          <button type="submit" disabled={loading} style={{ ...submitBtnStyle, opacity: loading ? 0.7 : 1 }}>
-            {loading ? "Creating Account..." : "Create Account"}
+          {/* Submit */}
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              width: "100%",
+              padding: "12px",
+              background: loading ? "var(--surface-2)" : "linear-gradient(135deg, #6366f1, #8b5cf6)",
+              color: loading ? "var(--text-muted)" : "#fff",
+              border: "none",
+              borderRadius: "10px",
+              fontSize: "0.95rem",
+              fontWeight: "700",
+              cursor: loading ? "not-allowed" : "pointer",
+              fontFamily: "var(--font)",
+              transition: "all 0.2s ease",
+              boxShadow: loading ? "none" : "0 6px 20px rgba(99,102,241,0.4)",
+              letterSpacing: "0.01em",
+            }}
+            onMouseEnter={(e) => {
+              if (!loading) {
+                e.currentTarget.style.transform = "translateY(-1px)";
+                e.currentTarget.style.boxShadow = "0 8px 24px rgba(99,102,241,0.5)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow = loading ? "none" : "0 6px 20px rgba(99,102,241,0.4)";
+            }}
+          >
+            {loading ? (
+              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                <span style={{
+                  width: "14px", height: "14px",
+                  border: "2px solid rgba(255,255,255,0.3)",
+                  borderTopColor: "#fff",
+                  borderRadius: "50%",
+                  display: "inline-block",
+                  animation: "spin 0.7s linear infinite",
+                }} />
+                Creating Account...
+              </span>
+            ) : "Create Account →"}
           </button>
 
-          {/* OR divider */}
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", margin: "18px 0" }}>
-            <div style={{ flex: 1, height: "1px", background: "#e2e8f0" }} />
-            <span style={{ fontSize: "0.8rem", color: "#94a3b8", fontWeight: "500", whiteSpace: "nowrap" }}>or sign up with</span>
-            <div style={{ flex: 1, height: "1px", background: "#e2e8f0" }} />
+          {/* OR Divider */}
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", margin: "20px 0" }}>
+            <div style={{ flex: 1, height: "1px", background: "var(--border)" }} />
+            <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: "600", whiteSpace: "nowrap" }}>
+              or sign up with
+            </span>
+            <div style={{ flex: 1, height: "1px", background: "var(--border)" }} />
           </div>
 
-          {/* Google Sign Up */}
+          {/* Google */}
           <div style={{ display: "flex", justifyContent: "center" }}>
             <GoogleLogin
               onSuccess={handleGoogleSuccess}
               onError={handleGoogleError}
               shape="rectangular"
-              theme="outline"
+              theme={isDark ? "filled_black" : "outline"}
               size="large"
               text="signup_with"
-              width="360"
+              width="368"
             />
           </div>
         </form>
 
-        <div style={{ marginTop: "20px", textAlign: "center", fontSize: "0.875rem", color: "#64748b" }}>
+        <div style={{ marginTop: "22px", textAlign: "center", fontSize: "0.875rem", color: "var(--text-muted)" }}>
           Already have an account?{" "}
-          <Link to="/login" style={{ color: "#2563eb", fontWeight: "600", textDecoration: "none" }}>
+          <Link
+            to="/login"
+            style={{ color: "var(--primary)", fontWeight: "700", textDecoration: "none" }}
+            onMouseEnter={(e) => e.target.style.textDecoration = "underline"}
+            onMouseLeave={(e) => e.target.style.textDecoration = "none"}
+          >
             Sign In
           </Link>
         </div>
       </div>
+
+      <style>{`
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(16px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }
-
-// ── Style helpers ──────────────────────────────────────────────────────────
-const outerStyle = {
-  minHeight: "calc(100vh - 60px)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "24px 16px",
-  background: "#f8fafc",
-};
-
-const cardStyle = {
-  width: "100%",
-  maxWidth: "440px",
-  background: "#fff",
-  borderRadius: "14px",
-  border: "1px solid #e2e8f0",
-  padding: "32px",
-  boxShadow: "0 4px 16px rgba(0,0,0,0.06)",
-};
-
-const errorStyle = {
-  padding: "10px 14px",
-  background: "#fef2f2",
-  border: "1px solid #fecaca",
-  borderRadius: "7px",
-  color: "#dc2626",
-  fontSize: "0.875rem",
-  marginBottom: "16px",
-};
-
-const fieldWrap = { marginBottom: "14px" };
-
-const labelStyle = {
-  display: "block",
-  fontSize: "0.875rem",
-  fontWeight: "500",
-  color: "#0f172a",
-  marginBottom: "5px",
-};
-
-const inputStyle = {
-  width: "100%",
-  padding: "9px 12px",
-  borderRadius: "7px",
-  border: "1px solid #e2e8f0",
-  fontSize: "0.9rem",
-  color: "#0f172a",
-  background: "#fff",
-  outline: "none",
-  boxSizing: "border-box",
-  fontFamily: "'Inter', sans-serif",
-  transition: "border-color 0.15s",
-};
-
-const eyeBtnStyle = {
-  position: "absolute",
-  right: "10px",
-  top: "50%",
-  transform: "translateY(-50%)",
-  background: "transparent",
-  border: "none",
-  cursor: "pointer",
-  fontSize: "14px",
-  padding: "4px",
-  lineHeight: 1,
-};
-
-const submitBtnStyle = {
-  width: "100%",
-  padding: "11px",
-  background: "#2563eb",
-  color: "#fff",
-  border: "none",
-  borderRadius: "8px",
-  fontSize: "0.95rem",
-  fontWeight: "600",
-  cursor: "pointer",
-  fontFamily: "'Inter', sans-serif",
-  transition: "background 0.15s",
-};
 
 export default Register;

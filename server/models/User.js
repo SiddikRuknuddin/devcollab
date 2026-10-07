@@ -79,6 +79,7 @@ const userSchema = new mongoose.Schema(
         name: { type: String, trim: true },
         completed: { type: String, trim: true },
         issuer: { type: String, trim: true },
+        certificateUrl: { type: String, trim: true, default: "" },
       },
     ],
 
@@ -105,6 +106,29 @@ const userSchema = new mongoose.Schema(
       default: null,
       select: false,
     },
+
+    // Feature 6: Skill Endorsements
+    endorsements: [
+      {
+        skill: { type: String, required: true, trim: true },
+        endorsedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          required: true,
+        },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+
+    // Feature 6: Gamification Badges
+    badges: [
+      {
+        name: { type: String, required: true },
+        icon: { type: String, default: "🏆" },
+        description: { type: String, default: "" },
+        earnedAt: { type: Date, default: Date.now },
+      },
+    ],
   },
   {
     timestamps: true,

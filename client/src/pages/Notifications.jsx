@@ -1,399 +1,277 @@
 import { useEffect, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../context/AuthContext";
+
+const TYPE_CONFIG = {
+  PROJECT_INVITATION: { label: "Invitation", icon: "📨", color: "#3b82f6", bg: "rgba(59,130,246,0.12)", border: "rgba(59,130,246,0.25)" },
+  INVITATION_ACCEPTED: { label: "Accepted", icon: "✅", color: "#10b981", bg: "rgba(16,185,129,0.12)", border: "rgba(16,185,129,0.25)" },
+  INVITATION_REJECTED: { label: "Declined", icon: "✕", color: "#ef4444", bg: "rgba(239,68,68,0.12)", border: "rgba(239,68,68,0.25)" },
+  PROJECT_MEMBER_REMOVED: { label: "Team Update", icon: "🔔", color: "#f59e0b", bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.25)" },
+  DISCUSSION_COMMENT: { label: "Comment", icon: "💬", color: "#8b5cf6", bg: "rgba(139,92,246,0.12)", border: "rgba(139,92,246,0.25)" },
+};
+
+const GRADIENTS = [
+  "linear-gradient(135deg,#6366f1,#8b5cf6)",
+  "linear-gradient(135deg,#06b6d4,#3b82f6)",
+  "linear-gradient(135deg,#f59e0b,#ef4444)",
+  "linear-gradient(135deg,#10b981,#06b6d4)",
+  "linear-gradient(135deg,#ec4899,#8b5cf6)",
+];
+
+function timeAgo(d) {
+  const m = Math.floor((Date.now() - new Date(d)) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+const Shell = ({ children }) => (
+  <div style={{ minHeight: "calc(100vh - 64px)", background: "var(--bg)", padding: "2rem 1.25rem 4rem" }}>
+    <div style={{ maxWidth: "860px", margin: "0 auto" }}>{children}</div>
+  </div>
+);
 
 function Notifications() {
   const { token } = useAuth();
   const navigate = useNavigate();
-
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
+  const [hoveredId, setHoveredId] = useState(null);
 
   const fetchNotifications = async () => {
     try {
-      const response = await api.get("/api/notifications");
-
-      setNotifications(response.data.notifications || []);
-      setUnreadCount(response.data.unreadCount || 0);
+      const res = await api.get("/api/notifications");
+      setNotifications(res.data.notifications || []);
+      setUnreadCount(res.data.unreadCount || 0);
     } catch (err) {
-      console.error(
-        "Notifications Fetch Error:",
-        err.response?.data || err.message
-      );
       setError("Unable to load notifications");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
-  useEffect(() => {
-    if (token) {
-      fetchNotifications();
-    }
-  }, [token]);
+  useEffect(() => { if (token) fetchNotifications(); }, [token]);
 
-  // Mark single notification as read
   const handleMarkAsRead = async (id, e) => {
     if (e) e.stopPropagation();
     try {
       await api.put(`/api/notifications/${id}/read`);
-
-      setNotifications((prev) =>
-        prev.map((item) => (item._id === id ? { ...item, isRead: true } : item))
-      );
-      setUnreadCount((prev) => Math.max(0, prev - 1));
-    } catch (err) {
-      console.error("Mark Read Error:", err.response?.data || err.message);
-    }
+      setNotifications(prev => prev.map(n => n._id === id ? { ...n, isRead: true } : n));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch {}
   };
 
-  // Mark all as read
   const handleMarkAllAsRead = async () => {
     setActionLoading(true);
     try {
       await api.put("/api/notifications/read-all");
-
-      setNotifications((prev) =>
-        prev.map((item) => ({ ...item, isRead: true }))
-      );
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
       setUnreadCount(0);
-    } catch (err) {
-      console.error("Mark All Read Error:", err.response?.data || err.message);
-      alert("Failed to mark all as read");
-    } finally {
-      setActionLoading(false);
-    }
+    } catch { alert("Failed to mark all as read"); }
+    finally { setActionLoading(false); }
   };
 
-  // Delete notification
   const handleDelete = async (id, e) => {
     if (e) e.stopPropagation();
     try {
       await api.delete(`/api/notifications/${id}`);
-
-      const deletedItem = notifications.find((n) => n._id === id);
-      if (deletedItem && !deletedItem.isRead) {
-        setUnreadCount((prev) => Math.max(0, prev - 1));
-      }
-
-      setNotifications((prev) => prev.filter((item) => item._id !== id));
-    } catch (err) {
-      console.error("Delete Notification Error:", err.response?.data || err.message);
-      alert("Failed to delete notification");
-    }
+      const item = notifications.find(n => n._id === id);
+      if (item && !item.isRead) setUnreadCount(prev => Math.max(0, prev - 1));
+      setNotifications(prev => prev.filter(n => n._id !== id));
+    } catch { alert("Failed to delete notification"); }
   };
 
-  // Click notification to navigate
-  const handleNotificationClick = async (notification) => {
-    // Mark as read if not already read
-    if (!notification.isRead) {
+  const handleNotificationClick = async (notif) => {
+    if (!notif.isRead) {
       try {
-        await api.put(`/api/notifications/${notification._id}/read`);
-        setNotifications((prev) =>
-          prev.map((item) =>
-            item._id === notification._id ? { ...item, isRead: true } : item
-          )
-        );
-        setUnreadCount((prev) => Math.max(0, prev - 1));
-      } catch (err) {
-        console.error("Auto Mark Read Error:", err);
+        await api.put(`/api/notifications/${notif._id}/read`);
+        setNotifications(prev => prev.map(n => n._id === notif._id ? { ...n, isRead: true } : n));
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      } catch {}
+    }
+    switch (notif.type) {
+      case "PROJECT_INVITATION": navigate("/invitations"); break;
+      case "INVITATION_ACCEPTED":
+      case "INVITATION_REJECTED":
+      case "PROJECT_MEMBER_REMOVED": {
+        const pId = notif.relatedProject?._id || notif.relatedProject;
+        navigate(pId ? `/projects/${pId}` : "/projects"); break;
+      }
+      case "DISCUSSION_COMMENT": {
+        const dId = notif.relatedDiscussion?._id || notif.relatedDiscussion;
+        navigate(dId ? `/discussions/${dId}` : "/discussions"); break;
       }
     }
-
-    // Determine target route
-    switch (notification.type) {
-      case "PROJECT_INVITATION":
-        navigate("/invitations");
-        break;
-      case "INVITATION_ACCEPTED":
-      case "INVITATION_REJECTED":
-      case "PROJECT_MEMBER_REMOVED":
-        if (notification.relatedProject?._id || notification.relatedProject) {
-          const pId =
-            notification.relatedProject._id || notification.relatedProject;
-          navigate(`/projects/${pId}`);
-        } else {
-          navigate("/projects");
-        }
-        break;
-      case "DISCUSSION_COMMENT":
-        if (
-          notification.relatedDiscussion?._id ||
-          notification.relatedDiscussion
-        ) {
-          const dId =
-            notification.relatedDiscussion._id ||
-            notification.relatedDiscussion;
-          navigate(`/discussions/${dId}`);
-        } else {
-          navigate("/discussions");
-        }
-        break;
-      default:
-        break;
-    }
   };
 
-  const getTypeBadge = (type) => {
-    switch (type) {
-      case "PROJECT_INVITATION":
-        return { label: "Invitation", color: "#3b82f6", bg: "#eff6ff" };
-      case "INVITATION_ACCEPTED":
-        return { label: "Accepted", color: "#10b981", bg: "#ecfdf5" };
-      case "INVITATION_REJECTED":
-        return { label: "Declined", color: "#ef4444", bg: "#fef2f2" };
-      case "PROJECT_MEMBER_REMOVED":
-        return { label: "Team Update", color: "#f59e0b", bg: "#fffbeb" };
-      case "DISCUSSION_COMMENT":
-        return { label: "Comment", color: "#8b5cf6", bg: "#f5f3ff" };
-      default:
-        return { label: "Notice", color: "#6b7280", bg: "#f3f4f6" };
-    }
-  };
-
-  const formatDate = (dateString) => {
-    if (!dateString) return "";
-    const date = new Date(dateString);
-    return date.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
-  if (loading) {
-    return (
-      <div style={{ maxWidth: "800px", margin: "2rem auto", padding: "0 1rem" }}>
-        <p>Loading notifications...</p>
+  if (loading) return (
+    <Shell>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "16px", padding: "4rem 0" }}>
+        <div style={{ width: "44px", height: "44px", border: "3px solid var(--border)", borderTopColor: "var(--primary)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+        <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>Loading notifications...</p>
       </div>
-    );
-  }
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </Shell>
+  );
 
-  if (error) {
-    return (
-      <div style={{ maxWidth: "800px", margin: "2rem auto", padding: "0 1rem" }}>
-        <p style={{ color: "#ef4444" }}>{error}</p>
-        <button onClick={fetchNotifications}>Retry</button>
+  if (error) return (
+    <Shell>
+      <div style={{ background: "var(--error-bg)", border: "1px solid var(--error-border)", borderRadius: "12px", padding: "1.5rem", textAlign: "center" }}>
+        <p style={{ color: "var(--error)", marginBottom: "12px" }}>{error}</p>
+        <button onClick={fetchNotifications} style={{ padding: "8px 20px", background: "var(--primary)", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer", fontFamily: "var(--font)", fontWeight: "700" }}>Retry</button>
       </div>
-    );
-  }
+    </Shell>
+  );
 
   return (
-    <div style={{ maxWidth: "850px", margin: "2rem auto", padding: "0 1rem" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "1.5rem",
-          flexWrap: "wrap",
-          gap: "1rem",
-        }}
-      >
+    <Shell>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px", marginBottom: "2rem" }}>
         <div>
-          <h1 style={{ margin: "0 0 0.25rem 0", fontSize: "1.75rem" }}>
-            Notifications 🔔
+          <h1 style={{
+            margin: "0 0 8px", fontSize: "2rem", fontWeight: "800",
+            color: "var(--text-primary)", letterSpacing: "-0.03em",
+            display: "flex", alignItems: "center", gap: "12px",
+          }}>
+            <span style={{
+              width: "42px", height: "42px", borderRadius: "11px",
+              background: "linear-gradient(135deg, #f59e0b, #ef4444)",
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              fontSize: "20px", boxShadow: "0 6px 20px rgba(245,158,11,0.35)",
+            }}>🔔</span>
+            Notifications
+            {unreadCount > 0 && (
+              <span style={{
+                fontSize: "0.7rem", fontWeight: "800",
+                background: "linear-gradient(135deg, #ef4444, #dc2626)",
+                color: "#fff", padding: "3px 9px", borderRadius: "20px",
+                boxShadow: "0 4px 12px rgba(239,68,68,0.4)",
+              }}>
+                {unreadCount} unread
+              </span>
+            )}
           </h1>
-          <p style={{ margin: 0, color: "#6b7280", fontSize: "0.95rem" }}>
+          <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.95rem" }}>
             Stay updated with your projects, team invitations, and discussions.
           </p>
         </div>
 
-        {notifications.length > 0 && unreadCount > 0 && (
+        {unreadCount > 0 && (
           <button
-            onClick={handleMarkAllAsRead}
-            disabled={actionLoading}
+            onClick={handleMarkAllAsRead} disabled={actionLoading}
             style={{
-              padding: "0.5rem 1rem",
-              fontSize: "0.9rem",
+              padding: "10px 20px",
+              background: "var(--surface)", color: "var(--text-primary)",
+              border: "1px solid var(--border)", borderRadius: "10px",
+              fontWeight: "600", fontSize: "0.875rem",
               cursor: actionLoading ? "not-allowed" : "pointer",
-              backgroundColor: "#2563eb",
-              color: "white",
-              border: "none",
-              borderRadius: "6px",
-              fontWeight: 500,
+              fontFamily: "var(--font)", transition: "all 0.2s ease",
             }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--primary-border)"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
           >
-            {actionLoading ? "Updating..." : "Mark All as Read"}
+            {actionLoading ? "Updating..." : "✓ Mark All as Read"}
           </button>
         )}
       </div>
 
+      {/* Empty state */}
       {notifications.length === 0 ? (
-        <div
-          style={{
-            textAlign: "center",
-            padding: "3rem 1.5rem",
-            backgroundColor: "#f9fafb",
-            borderRadius: "8px",
-            border: "1px solid #e5e7eb",
-          }}
-        >
-          <span style={{ fontSize: "2.5rem" }}>📭</span>
-          <h3 style={{ marginTop: "1rem", marginBottom: "0.5rem" }}>
-            No notifications yet
-          </h3>
-          <p style={{ color: "#6b7280", margin: 0 }}>
-            You're all caught up! New invites, comments, and project updates will
-            appear here.
+        <div style={{ textAlign: "center", padding: "4rem 2rem", background: "var(--surface)", borderRadius: "18px", border: "1px solid var(--border)" }}>
+          <div style={{ fontSize: "3rem", marginBottom: "16px" }}>📭</div>
+          <h3 style={{ margin: "0 0 8px", color: "var(--text-primary)", fontSize: "1.2rem" }}>You're all caught up!</h3>
+          <p style={{ color: "var(--text-secondary)", margin: 0, fontSize: "0.9rem" }}>
+            New invites, comments, and project updates will appear here.
           </p>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-          {notifications.map((item) => {
-            const badge = getTypeBadge(item.type);
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          {notifications.map((item, i) => {
+            const tc = TYPE_CONFIG[item.type] || { label: "Notice", icon: "📌", color: "#6b7280", bg: "rgba(107,114,128,0.1)", border: "rgba(107,114,128,0.2)" };
+            const isHovered = hoveredId === item._id;
+            const initials = (item.sender?.name || "U")[0].toUpperCase();
+            const gradient = GRADIENTS[i % GRADIENTS.length];
+
             return (
               <div
                 key={item._id}
                 onClick={() => handleNotificationClick(item)}
+                onMouseEnter={() => setHoveredId(item._id)}
+                onMouseLeave={() => setHoveredId(null)}
                 style={{
-                  display: "flex",
-                  alignItems: "flex-start",
-                  justifyContent: "space-between",
-                  padding: "1rem 1.25rem",
-                  backgroundColor: item.isRead ? "#ffffff" : "#f0f7ff",
-                  borderRadius: "8px",
-                  border: item.isRead
-                    ? "1px solid #e5e7eb"
-                    : "1px solid #93c5fd",
-                  boxShadow: item.isRead
-                    ? "none"
-                    : "0 1px 3px rgba(37,99,235,0.08)",
+                  display: "flex", alignItems: "flex-start",
+                  justifyContent: "space-between", gap: "16px",
+                  padding: "1.1rem 1.35rem",
+                  background: item.isRead ? "var(--surface)" : "rgba(99,102,241,0.06)",
+                  borderRadius: "14px",
+                  border: `1px solid ${isHovered ? "var(--primary-border)" : item.isRead ? "var(--border)" : "rgba(99,102,241,0.25)"}`,
+                  boxShadow: isHovered ? "var(--shadow-lg)" : "var(--shadow)",
                   cursor: "pointer",
-                  transition: "all 0.15s ease",
-                  gap: "1rem",
+                  transition: "all 0.2s ease",
+                  transform: isHovered ? "translateY(-2px)" : "translateY(0)",
                 }}
               >
-                <div style={{ display: "flex", gap: "1rem", flex: 1 }}>
-                  {/* Sender Avatar / Icon */}
-                  <div
-                    style={{
-                      width: "42px",
-                      height: "42px",
-                      borderRadius: "50%",
-                      backgroundColor: "#e0e7ff",
-                      color: "#3730a3",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontWeight: 600,
-                      fontSize: "1.1rem",
-                      flexShrink: 0,
-                      overflow: "hidden",
-                    }}
-                  >
-                    {item.sender?.profileImage ? (
-                      <img
-                        src={item.sender.profileImage}
-                        alt={item.sender?.name || "User"}
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "cover",
-                        }}
-                      />
-                    ) : (
-                      (item.sender?.name || "U")[0].toUpperCase()
+                {/* Avatar */}
+                <div style={{
+                  width: "44px", height: "44px", borderRadius: "12px",
+                  background: item.sender?.profileImage ? "#000" : gradient,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: "1rem", fontWeight: "800", color: "#fff",
+                  flexShrink: 0, overflow: "hidden",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                }}>
+                  {item.sender?.profileImage
+                    ? <img src={item.sender.profileImage} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.target.style.display = "none"; }} />
+                    : initials}
+                </div>
+
+                {/* Content */}
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", flexWrap: "wrap" }}>
+                    <span style={{
+                      fontSize: "0.72rem", fontWeight: "700",
+                      padding: "3px 9px", borderRadius: "20px",
+                      color: tc.color, background: tc.bg,
+                      border: `1px solid ${tc.border}`,
+                    }}>
+                      {tc.icon} {tc.label}
+                    </span>
+                    <span style={{ fontWeight: "700", fontSize: "0.95rem", color: "var(--text-primary)" }}>{item.title}</span>
+                    {!item.isRead && (
+                      <span style={{
+                        width: "7px", height: "7px", borderRadius: "50%",
+                        background: "var(--primary)", display: "inline-block",
+                        boxShadow: "0 0 8px rgba(99,102,241,0.6)",
+                      }} />
                     )}
                   </div>
 
-                  <div style={{ flex: 1 }}>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "0.5rem",
-                        marginBottom: "0.25rem",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontSize: "0.75rem",
-                          fontWeight: 600,
-                          padding: "0.15rem 0.5rem",
-                          borderRadius: "4px",
-                          color: badge.color,
-                          backgroundColor: badge.bg,
-                        }}
-                      >
-                        {badge.label}
-                      </span>
-                      <strong style={{ fontSize: "1rem", color: "#111827" }}>
-                        {item.title}
-                      </strong>
-                      {!item.isRead && (
-                        <span
-                          style={{
-                            width: "8px",
-                            height: "8px",
-                            borderRadius: "50%",
-                            backgroundColor: "#2563eb",
-                            display: "inline-block",
-                          }}
-                          title="Unread"
-                        />
-                      )}
-                    </div>
+                  <p style={{ margin: "0 0 6px", color: "var(--text-secondary)", fontSize: "0.875rem", lineHeight: 1.5 }}>
+                    {item.message}
+                  </p>
 
-                    <p
-                      style={{
-                        margin: "0 0 0.5rem 0",
-                        color: "#374151",
-                        fontSize: "0.95rem",
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      {item.message}
-                    </p>
-
-                    <div
-                      style={{
-                        fontSize: "0.8rem",
-                        color: "#6b7280",
-                        display: "flex",
-                        gap: "1rem",
-                        alignItems: "center",
-                      }}
-                    >
-                      <span>
-                        From:{" "}
-                        <strong>
-                          {item.sender?.name || "DevCollab User"}
-                        </strong>
-                      </span>
-                      <span>•</span>
-                      <span>{formatDate(item.createdAt)}</span>
-                    </div>
+                  <div style={{ display: "flex", gap: "10px", fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                    <span>From: <strong style={{ color: "var(--text-secondary)" }}>{item.sender?.name || "DevCollab"}</strong></span>
+                    <span>·</span>
+                    <span>{timeAgo(item.createdAt)}</span>
                   </div>
                 </div>
 
                 {/* Actions */}
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "0.35rem",
-                    alignItems: "flex-end",
-                    flexShrink: 0,
-                  }}
-                >
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end", flexShrink: 0 }}>
                   {!item.isRead && (
                     <button
                       onClick={(e) => handleMarkAsRead(item._id, e)}
                       style={{
-                        fontSize: "0.8rem",
-                        padding: "0.3rem 0.6rem",
-                        backgroundColor: "#f3f4f6",
-                        border: "1px solid #d1d5db",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        color: "#374151",
+                        fontSize: "0.75rem", padding: "4px 10px",
+                        background: "var(--surface-2)", border: "1px solid var(--border)",
+                        borderRadius: "6px", cursor: "pointer",
+                        color: "var(--text-secondary)", fontFamily: "var(--font)",
+                        whiteSpace: "nowrap",
                       }}
                     >
                       Mark Read
@@ -402,13 +280,10 @@ function Notifications() {
                   <button
                     onClick={(e) => handleDelete(item._id, e)}
                     style={{
-                      fontSize: "0.8rem",
-                      padding: "0.3rem 0.6rem",
-                      backgroundColor: "#fff",
-                      border: "1px solid #fca5a5",
-                      color: "#ef4444",
-                      borderRadius: "4px",
-                      cursor: "pointer",
+                      fontSize: "0.75rem", padding: "4px 10px",
+                      background: "var(--error-bg)", border: "1px solid var(--error-border)",
+                      color: "var(--error)", borderRadius: "6px",
+                      cursor: "pointer", fontFamily: "var(--font)",
                     }}
                   >
                     Delete
@@ -419,7 +294,8 @@ function Notifications() {
           })}
         </div>
       )}
-    </div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </Shell>
   );
 }
 
